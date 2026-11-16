@@ -1,23 +1,24 @@
-# GayoSpace 软件技术方案（TS-SW）v0.3 草稿
+# GayoSpace 软件技术方案（TS-SW）v1.0（定稿）
 
-> 状态：草稿，待 Grayson review（AGENTS.md 第一节第 6 步：TS 定稿后方可编码）
+> 状态：**定稿（共识版 v1.0）**——2026-11-16 Grayson 确认；后续变更走 AGENTS.md 第十二节变更管理
 > 日期：2026-11-16
 > 上游依据：docs/PRD.md（基础共识版 v1.0）、docs/DoD.md（定稿 v1.1）
 > 本项目无硬件，无 TS-HW / HSI；本 TS 是唯一的"怎么做"事实来源。
 > v0.2 变更：依据外部评审（DeepSeek，2026-11-16，Grayson 提交）补 6 处阻塞缺口（发送路径、失效模式 4 行、ChannelStore 数据模型、IProtocolParser 接口、协议热切换跨线程同步、串口重连策略）与全部重要/细节项；章节重排。
 > v0.3 变更：待核项 #1/#2/#4 关闭——Qt 锁定 6.8 LTS（Grayson 2026-11-16 决策）；OpenCppCoverage 维持 v1.0 使用 + v1.1 评估迁移（选项 A，Grayson 确认）；FireWater any: 判定规则经核对与官方行为一致并回填出处。
+> v1.0 定稿变更：按 Grayson 最终回填修订技术栈两行与待核清单口径；三项待核关闭，两项（com0com、Qwt spike）转入编码阶段执行。
 
 ## 1. 技术栈总表
 
 | 项 | 选型 | 说明 |
 | --- | --- | --- |
 | 语言 | C++20 | `std::span`、`std::atomic` 等现代设施；与参考项目 serial_debug_tool 同代 |
-| UI 框架 | **Qt 6.8 LTS**（Widgets） | Widgets 优先于 QML：桌面工具、重绘图、不追移动端动效。版本锁定理由（Grayson 2026-11-16 决策）：6.8 为当前 LTS 主力，比最新版生态成熟；MSVC/Windows SDK 组合在测试框架工程搭建时按 6.8 官方安装器默认值固化到 CI 配置 |
+| UI 框架 | Qt 6.8 LTS（MSVC 2022 x64 工具链） | Widgets 优先于 QML；6.8 为 LTS，5 年维护窗口覆盖 v1.0 生命周期；6.12 LTS 为最后一个支持 Win10 的版本，列入 v2.0 + TODO-007 升级候选，不进 v1.0 基线 |
 | 构建 | CMake ≥ 3.21 | 前置依赖脚本化；MSVC x64 工具链 |
 | 脚本引擎 | QJSEngine | Qt 自带零第三方依赖，仅用于协议解析（PRD F-04 边界） |
 | 波形渲染 | Qwt | 已核对：Qwt License v1.0 = LGPL + 子类化/静态链接例外（出处 https://qwt.sourceforge.io/qwtlicense.html ，核对日 2026-11-16）；动态链接，列入 THIRD-PARTY-NOTICES |
 | 单元测试 | Catch2 v3 | BSL-1.0 宽松许可；Qt 信号槽相关测试辅以 Qt Test（DoD 2.1 硬前置，随本 TS 定稿锁定） |
-| 覆盖率 | OpenCppCoverage（MSVC） | **构建/测试期工具，License 与产品无关、不随产品分发**；THIRD-PARTY-NOTICES 分"运行时依赖"与"构建期工具"两节登记。⚠️ 上游仓库 2026 年 9 月已归档（只读）：v1.0 继续使用（归档态 CLI 稳定可用，决策：选项 A，Grayson 2026-11-16）；**v1.1 评估迁移至 VS 内置覆盖率 / Microsoft.CodeCoverage.Console**，登记于第 14 节 |
+| 覆盖率 | OpenCppCoverage 0.9.9.0（CLI） | 生成 Cobertura 报告入 CI；上游仓库 2026-09 已归档（只读），CLI 在 VS 2022 构建产物上可正常工作，v1.0 不迁移；v1.1 评估迁移至 Microsoft.CodeCoverage.Console（需确认 CI 的 VS 许可层级），归档风险登记于第 14 节待核。**构建/测试期工具，License 与产品无关、不随产品分发**；THIRD-PARTY-NOTICES 分"运行时依赖"与"构建期工具"两节登记 |
 | CI | GitHub Actions（windows-latest） | 构建 + 单测 + Win32 扫描 + UI 字符串检查 + 覆盖率 |
 | 版本 | SemVer，编译期注入 `GAYOSPACE_VERSION` | 运行时"关于"对话框与 CLI `--version` 可读出 |
 
@@ -120,7 +121,8 @@ struct Frame {
 ### 4.2 FireWater（出处：https://www.vofa.plus/docs/learning/dataengines/firewater/ ，核对日 2026-11-16）
 
 - 格式：`"<any>:ch0,ch1,...,chN\n"`；`any` 与冒号可省略；`\n` 不可省略，兼容 `\r\n` 与 `\n\r`；`any` 不得为 `image`。
-- **`any:` 前缀判定规则（已核对，2026-11-16）**：行首至第一个 `:` 之间的片段，若不含数字则视为前缀剔除（如 `channels:1,2,3`）；若含数字则不剔除，整行进入宽容解析（如 `1.0:2.0,3.0` → 字段 `1.0:2.0` 经 `strtof` 解析出 1.0，冒号终止该字段）。该规则与 VOFA+ 官方行为一致（出处：https://www.vofa.plus/docs/learning/dataengines/firewater/ ，核对日 2026-11-16；官方定义"any 和冒号可以为空"印证前缀为可选文本而非数据的一部分），编码阶段仍安排一次 VOFA+ 实测复核（原待核 #4，已降级为常规验证）。
+- **`any:` 前缀判定规则（已核对，2026-11-16）**：行首至第一个 `:` 之间的片段，若不含数字则视为前缀剔除（如 `channels:1,2,3`）；若含数字则不剔除，整行进入宽容解析（如 `1.0:2.0,3.0` → 字段 `1.0:2.0` 经 `strtof` 解析出 1.0，冒号终止该字段）。
+- 判定规则已与 VOFA+ 官方文档核对（出处 https://vofa.plus/docs/learning/dataengines/firewater/ ，核对日 2026-11-16）。官方约定 any 与冒号可为空，本条"行首冒号前片段是否含数字"的判定是官方语义的工程落地；待核 #4 的 spike 用于确认边界案例，规则本身不再变更。
 - 解析策略：按行缓冲 → 前缀判定 → 逗号切分 → 逐字段 `strtof` 宽容解析（失败字段置 NaN 并计入错误计数，不丢整行）。
 
 ### 4.3 Script（自定义 JS 协议）
@@ -288,15 +290,15 @@ function reset() { ... }
 | 007 跨平台 | `platform/` 目录 + 扫描机制（第 11 节），CMake 顶层按平台条件编译 |
 | 009 安装包 | v1.0 仅便携 zip；打包脚本目录 `packaging/` 预留 |
 
-## 14. 待核项清单（编码启动前必须关闭的硬前置 = #3、#5；#1/#2/#4 已关闭）
+## 14. 待核项清单（编码启动前硬前置 = 无；#3/#5 已转入编码阶段 spike）
 
-| # | 待核项 | 关闭动作 | 状态 |
+| # | 项 | 说明 | 状态 |
 | --- | --- | --- | --- |
-| 1 | Qt 最新 LTS 版本号 + MSVC/Windows SDK 版本组合 | — | **已关闭**：锁定 Qt 6.8 LTS（Grayson 2026-11-16 决策），MSVC/SDK 随测试框架工程固化 |
-| 2 | OpenCppCoverage 对 MSVC 最新工具链的支持 | — | **已关闭**（决策：选项 A）：上游 2026-09 已归档，v1.0 继续使用，搭 CI 前实测一次确认可用；v1.1 评估迁移至 VS 内置覆盖率 / Microsoft.CodeCoverage.Console |
-| 3 | com0com 在 Win10/11 的签名安装方式 | 搭集成测试环境前验证 | **待办（需本机操作）** |
-| 4 | FireWater `any:` 前缀判定与 VOFA+ 实测对齐 | — | **已关闭**：规则经核对与官方行为一致（出处回填 4.2）；编码阶段安排一次 VOFA+ 实测复核（降级为常规验证） |
-| 5 | Qwt 透明背景 spike | 编码启动前完成（见 5.1），结论回填 | **待办（需本机建工程实测）** |
+| 1 | Qt 版本 | — | **已关闭**：Qt 6.8 LTS（MSVC 2022 x64）；6.12 LTS 为最后支持 Win10 的版本，列入 v2.0 + TODO-007 升级候选 |
+| 2 | OpenCppCoverage | — | **已关闭**（选项 A）：0.9.9.0 CLI，上游已归档，v1.0 不迁移；v1.1 评估 Microsoft.CodeCoverage.Console（需确认 CI VS 许可层级） |
+| 3 | com0com 签名安装方式 | Win10/11 验证 | **编码阶段 spike**（搭集成测试环境时执行） |
+| 4 | FireWater 协议比对 | 规则已定（见 4.2，不再变更） | **收窄为边界案例 spike**：仅实测确认边界案例 |
+| 5 | Qwt 透明背景 | 见 5.1，结论回填 | **编码阶段 spike #1**（Qwt × Glassmorphism 兼容性实测） |
 
 ## 15. 决议记录
 
