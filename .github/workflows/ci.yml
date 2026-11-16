@@ -27,6 +27,11 @@ jobs:
           arch: win64_msvc2022_64
           cache: true
 
+      - name: Activate MSVC 2022 environment
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
       - name: Configure
         run: cmake --preset ci
 

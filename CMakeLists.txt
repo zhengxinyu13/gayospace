@@ -26,6 +26,9 @@ FetchContent_Declare(
     GIT_TAG        v3.7.1
 )
 FetchContent_MakeAvailable(catch2)
+# Catch2 v3 的 catch_discover_tests 命令由 extras/Catch.cmake 提供，FetchContent 不自动引入
+list(APPEND CMAKE_MODULE_PATH ${catch2_SOURCE_DIR}/extras)
+include(Catch)
 
 enable_testing()
 
