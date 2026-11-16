@@ -15,8 +15,8 @@ jobs:
       - name: Resolve latest Qt 6.8 patch version
         id: qtver
         run: |
-          pip install aqtinstall
-          $v = python -m aqt list-qt windows desktop --latest-version 6.8
+          pip install "aqtinstall==3.3.0"
+          $v = python -m aqt list-qt windows desktop --latest-version --spec 6.8
           Write-Output "version=$v" >> $env:GITHUB_OUTPUT
           Write-Output "Resolved Qt 6.8 -> $v"
 
