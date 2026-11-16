@@ -4,7 +4,7 @@
 #include <catch2/catch_test_macros.hpp>
 
 #include "applogic/Version.h"
-#include "version.h"
+#include "gayospace_version.h"
 
 TEST_CASE("version is injected at build time", "[version][smoke]")
 {

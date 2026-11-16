@@ -13,7 +13,11 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 
 # 编译期注入版本宏（TS-SW 第 1 节：GAYOSPACE_VERSION 运行时可读出）
 set(GAYOSPACE_BUILD_ID "dev" CACHE STRING "Build identifier injected into the binary")
-configure_file(cmake/version.h.in ${CMAKE_BINARY_DIR}/generated/version.h @ONLY)
+configure_file(cmake/version.h.in ${CMAKE_BINARY_DIR}/generated/gayospace_version.h @ONLY)
+# 自检：生成失败立即暴露，不在编译期以难懂的 C2065 呈现
+if(NOT EXISTS ${CMAKE_BINARY_DIR}/generated/gayospace_version.h)
+    message(FATAL_ERROR "gayospace_version.h 未生成，检查 configure_file 输入 cmake/version.h.in")
+endif()
 
 find_package(Qt6 6.8 REQUIRED COMPONENTS Core Widgets Test)
 qt_standard_project_setup()

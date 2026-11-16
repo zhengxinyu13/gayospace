@@ -1,6 +1,6 @@
 #include "applogic/Version.h"
 
-#include "version.h"
+#include "gayospace_version.h"
 
 namespace gayospace {
 
