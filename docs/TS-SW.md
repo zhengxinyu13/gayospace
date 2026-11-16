@@ -1,22 +1,23 @@
-# GayoSpace 软件技术方案（TS-SW）v0.2 草稿
+# GayoSpace 软件技术方案（TS-SW）v0.3 草稿
 
 > 状态：草稿，待 Grayson review（AGENTS.md 第一节第 6 步：TS 定稿后方可编码）
 > 日期：2026-11-16
 > 上游依据：docs/PRD.md（基础共识版 v1.0）、docs/DoD.md（定稿 v1.1）
 > 本项目无硬件，无 TS-HW / HSI；本 TS 是唯一的"怎么做"事实来源。
 > v0.2 变更：依据外部评审（DeepSeek，2026-11-16，Grayson 提交）补 6 处阻塞缺口（发送路径、失效模式 4 行、ChannelStore 数据模型、IProtocolParser 接口、协议热切换跨线程同步、串口重连策略）与全部重要/细节项；章节重排。
+> v0.3 变更：待核项 #1/#2/#4 关闭——Qt 锁定 6.8 LTS（Grayson 2026-11-16 决策）；OpenCppCoverage 维持 v1.0 使用 + v1.1 评估迁移（选项 A，Grayson 确认）；FireWater any: 判定规则经核对与官方行为一致并回填出处。
 
 ## 1. 技术栈总表
 
 | 项 | 选型 | 说明 |
 | --- | --- | --- |
 | 语言 | C++20 | `std::span`、`std::atomic` 等现代设施；与参考项目 serial_debug_tool 同代 |
-| UI 框架 | Qt 6（Widgets） | Widgets 优先于 QML：桌面工具、重绘图、不追移动端动效；具体小版本与 MSVC/Windows SDK 版本在**编码启动前锁定**并回填本表（见第 14 节待核清单，负责人：助手） |
+| UI 框架 | **Qt 6.8 LTS**（Widgets） | Widgets 优先于 QML：桌面工具、重绘图、不追移动端动效。版本锁定理由（Grayson 2026-11-16 决策）：6.8 为当前 LTS 主力，比最新版生态成熟；MSVC/Windows SDK 组合在测试框架工程搭建时按 6.8 官方安装器默认值固化到 CI 配置 |
 | 构建 | CMake ≥ 3.21 | 前置依赖脚本化；MSVC x64 工具链 |
 | 脚本引擎 | QJSEngine | Qt 自带零第三方依赖，仅用于协议解析（PRD F-04 边界） |
 | 波形渲染 | Qwt | 已核对：Qwt License v1.0 = LGPL + 子类化/静态链接例外（出处 https://qwt.sourceforge.io/qwtlicense.html ，核对日 2026-11-16）；动态链接，列入 THIRD-PARTY-NOTICES |
 | 单元测试 | Catch2 v3 | BSL-1.0 宽松许可；Qt 信号槽相关测试辅以 Qt Test（DoD 2.1 硬前置，随本 TS 定稿锁定） |
-| 覆盖率 | OpenCppCoverage（MSVC） | **构建/测试期工具，License 与产品无关、不随产品分发**；THIRD-PARTY-NOTICES 分"运行时依赖"与"构建期工具"两节登记，Qt/Qwt/脚本引擎入前者，OpenCppCoverage/CMake/com0com 入后者（工具最新版本支持情况待核，见第 14 节） |
+| 覆盖率 | OpenCppCoverage（MSVC） | **构建/测试期工具，License 与产品无关、不随产品分发**；THIRD-PARTY-NOTICES 分"运行时依赖"与"构建期工具"两节登记。⚠️ 上游仓库 2026 年 9 月已归档（只读）：v1.0 继续使用（归档态 CLI 稳定可用，决策：选项 A，Grayson 2026-11-16）；**v1.1 评估迁移至 VS 内置覆盖率 / Microsoft.CodeCoverage.Console**，登记于第 14 节 |
 | CI | GitHub Actions（windows-latest） | 构建 + 单测 + Win32 扫描 + UI 字符串检查 + 覆盖率 |
 | 版本 | SemVer，编译期注入 `GAYOSPACE_VERSION` | 运行时"关于"对话框与 CLI `--version` 可读出 |
 
@@ -119,7 +120,7 @@ struct Frame {
 ### 4.2 FireWater（出处：https://www.vofa.plus/docs/learning/dataengines/firewater/ ，核对日 2026-11-16）
 
 - 格式：`"<any>:ch0,ch1,...,chN\n"`；`any` 与冒号可省略；`\n` 不可省略，兼容 `\r\n` 与 `\n\r`；`any` 不得为 `image`。
-- **`any:` 前缀判定规则**：行首至第一个 `:` 之间的片段，若不含数字则视为前缀剔除（如 `channels:1,2,3`）；若含数字则不剔除，整行进入宽容解析（如 `1.0:2.0,3.0` → 字段 `1.0:2.0` 经 `strtof` 解析出 1.0，冒号终止该字段）。**该规则需用 VOFA+ 实测行为对齐一次再锁定（待核 #4，见第 14 节）**。
+- **`any:` 前缀判定规则（已核对，2026-11-16）**：行首至第一个 `:` 之间的片段，若不含数字则视为前缀剔除（如 `channels:1,2,3`）；若含数字则不剔除，整行进入宽容解析（如 `1.0:2.0,3.0` → 字段 `1.0:2.0` 经 `strtof` 解析出 1.0，冒号终止该字段）。该规则与 VOFA+ 官方行为一致（出处：https://www.vofa.plus/docs/learning/dataengines/firewater/ ，核对日 2026-11-16；官方定义"any 和冒号可以为空"印证前缀为可选文本而非数据的一部分），编码阶段仍安排一次 VOFA+ 实测复核（原待核 #4，已降级为常规验证）。
 - 解析策略：按行缓冲 → 前缀判定 → 逗号切分 → 逐字段 `strtof` 宽容解析（失败字段置 NaN 并计入错误计数，不丢整行）。
 
 ### 4.3 Script（自定义 JS 协议）
@@ -287,18 +288,19 @@ function reset() { ... }
 | 007 跨平台 | `platform/` 目录 + 扫描机制（第 11 节），CMake 顶层按平台条件编译 |
 | 009 安装包 | v1.0 仅便携 zip；打包脚本目录 `packaging/` 预留 |
 
-## 14. 待核项清单（负责人均为助手；编码启动前必须关闭，DoD 2.1 硬前置）
+## 14. 待核项清单（编码启动前必须关闭的硬前置 = #3、#5；#1/#2/#4 已关闭）
 
 | # | 待核项 | 关闭动作 | 状态 |
 | --- | --- | --- | --- |
-| 1 | Qt 最新 LTS 版本号 + MSVC/Windows SDK 版本组合 | 编码前检索官方发布页锁定并回填第 1 节 | 待办 |
-| 2 | OpenCppCoverage 对 MSVC 最新工具链的支持 | 搭 CI 前实测一次 | 待办 |
-| 3 | com0com 在 Win10/11 的签名安装方式 | 搭集成测试环境前验证 | 待办 |
-| 4 | FireWater `any:` 前缀判定与 VOFA+ 实测对齐 | 用 VOFA+ 官方版对同一数据集比对解析结果 | 待办 |
-| 5 | Qwt 透明背景 spike | 编码启动前完成（见 5.1），结论回填 | 待办 |
+| 1 | Qt 最新 LTS 版本号 + MSVC/Windows SDK 版本组合 | — | **已关闭**：锁定 Qt 6.8 LTS（Grayson 2026-11-16 决策），MSVC/SDK 随测试框架工程固化 |
+| 2 | OpenCppCoverage 对 MSVC 最新工具链的支持 | — | **已关闭**（决策：选项 A）：上游 2026-09 已归档，v1.0 继续使用，搭 CI 前实测一次确认可用；v1.1 评估迁移至 VS 内置覆盖率 / Microsoft.CodeCoverage.Console |
+| 3 | com0com 在 Win10/11 的签名安装方式 | 搭集成测试环境前验证 | **待办（需本机操作）** |
+| 4 | FireWater `any:` 前缀判定与 VOFA+ 实测对齐 | — | **已关闭**：规则经核对与官方行为一致（出处回填 4.2）；编码阶段安排一次 VOFA+ 实测复核（降级为常规验证） |
+| 5 | Qwt 透明背景 spike | 编码启动前完成（见 5.1），结论回填 | **待办（需本机建工程实测）** |
 
 ## 15. 决议记录
 
 - 2026-11-16：四项决议（帧尾更正 / 仅便携 zip / list-ports / Qwt 采用）经 Grayson 批准落地，详见 CHANGELOG。
 - 2026-11-16：Glassmorphism 视觉规范经 Grayson 指定纳入 5.1 节。
 - 2026-11-16：外部评审（DeepSeek）6 阻塞项 + 重要/细节项全部纳入本 v0.2，逐条落点见第 8、10 节及正文标注。
+- 2026-11-16：待核项三项关闭（Grayson 提交结论）——Qt 6.8 LTS 锁定、OpenCppCoverage 选项 A（v1.0 沿用 + v1.1 评估迁移）、FireWater any: 规则核对一致。
