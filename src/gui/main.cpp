@@ -5,6 +5,7 @@
 #include <QMainWindow>
 
 #include "applogic/Version.h"
+#include "gayospace_version.h"
 
 int main(int argc, char* argv[])
 {
