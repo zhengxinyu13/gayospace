@@ -13,7 +13,7 @@
 | UI 框架 | Qt 6（Widgets） | Widgets 优先于 QML：桌面工具、重绘图、不追移动端动效；具体 Qt 小版本编码前核对最新 LTS（**待核**） |
 | 构建 | CMake ≥ 3.21 | 前置依赖脚本化；MSVC x64 工具链 |
 | 脚本引擎 | QJSEngine | Qt 自带零第三方依赖，仅用于协议解析（PRD F-04 边界） |
-| 波形渲染 | 见第 6 节选型对比 | 推荐 Qwt（LGPL），采用前按官网 License 原文核对（**待核**） |
+| 波形渲染 | Qwt（已核对：Qwt License v1.0 = LGPL + 子类化/静态链接例外，出处 https://qwt.sourceforge.io/qwtlicense.html ，核对日 2026-11-16） | MIT 项目合规，动态链接使用并列入 THIRD-PARTY-NOTICES |
 | 单元测试 | Catch2 v3 | BSL-1.0 宽松许可；Qt 信号槽相关测试辅以 Qt Test（DoD 2.1 硬前置，随本 TS 定稿锁定） |
 | 覆盖率 | OpenCppCoverage（MSVC） | 生成 Cobertura 报告入 CI（工具最新版本支持情况**待核**） |
 | CI | GitHub Actions（windows-latest） | 构建 + 单测 + Win32 扫描 + UI 字符串检查 + 覆盖率 |
@@ -103,16 +103,17 @@ function reset() { ... }
 | --- | --- | --- | --- | --- |
 | QCustomPlot | **GPLv3 / 商业双许可** | 优 | 低 | **排除**：GPL 传染，与本项目 MIT 冲突 |
 | Qt Charts | GPLv3（开源版） | 良 | 低 | 排除：同上 License 顾虑（**待核**最新许可条款） |
-| Qwt | LGPL 风格（含静态链接例外） | 良（8ch@1kHz 实践充分） | 中 | **推荐**；采用前核对官网 License 原文（**待核**） |
+| Qwt | **已核对**：Qwt License v1.0 = LGPL + 例外①子类化 Qwt 控件不构成衍生作品 ②静态链接不构成衍生作品（出处：https://qwt.sourceforge.io/qwtlicense.html ，核对日 2026-11-16） | 良（8ch@1kHz 实践充分） | 中 | **定稿采用**；动态链接，列入 THIRD-PARTY-NOTICES |
 | QPainter/QOpenGLWidget 自绘 | 无依赖 | 优（上限最高） | 高 | 备选：Qwt 实测不达标时启动（DoD 2.3 性能基准不通过即触发） |
 
 ## 6. CLI 输出契约（稳定契约，向后兼容承诺自此版起）
 
 ```
-用法（v1.0 两类场景，对应 PRD F-07）：
+用法（v1.0 三类场景，对应 PRD F-07；list-ports 经 2026-11-16 Grayson 批准加入）：
   gayospace capture --port COM3 --baud 115200 [--protocol justfloat|firewater|script --script file.js]
                     [--channels N] [--duration SEC | --samples COUNT] [--out data.csv|data.json] [--hex-echo]
   gayospace send --port COM3 --baud 115200 --data "01 02 03" [--hex] [--repeat N --interval MS]
+  gayospace list-ports        # 枚举可用串口（JSON 输出：设备名、描述、硬件 ID），供 Agent/脚本探测
   gayospace --version
 ```
 
@@ -172,10 +173,11 @@ function reset() { ... }
 | 003 控制面板 | ChannelStore 双向预留"下行命令"消息接口 |
 | 004 多会话标签 | 前端会话对象化（Session 类），GUI 标签页 = 多实例，core 无需改动 |
 | 007 跨平台 | `platform/` 目录 + 扫描机制（第 9 节），CMake 顶层按平台条件编译 |
+| 009 安装包 | v1.0 仅便携 zip；打包脚本目录 `packaging/` 预留，NSIS 时新增即可 |
 
-## 12. 开放问题（review 时定）
+## 12. 开放问题（已全部关闭，2026-11-16 Grayson 批准全部 4 项决议）
 
-1. **PRD 变更申请**：F-03 帧尾描述更正为官方值 `00 00 80 7F`（见 4.1，需你批准）。
-2. 波形渲染 Qwt 许可证原文核对结果（我编码前完成核对并回填 5 节，若 License 不符则切自绘方案）。
-3. CLI 是否需要 `list-ports` 子命令（枚举端口给 Agent 探测用）——建议加，成本半天。
-4. 安装包形态（NSIS / Inno / 仅便携 zip）——DoD 留待本次定，我的建议：v1.0 仅便携 zip，NSIS 进 TODO 池，理由：单机绿色工具安装包增值低、维护成本高。
+1. ~~PRD 变更申请：帧尾更正~~ 已批准，PRD F-03 已更正为 `00 00 80 7F`。
+2. ~~Qwt License 核对~~ 已完成并回填第 1、5 节，Qwt 定稿采用。
+3. ~~list-ports 子命令~~ 已批准，CLI 契约（第 6 节）已更新。
+4. ~~安装包形态~~ 已批准：v1.0 仅便携 zip，NSIS 进 PRD TODO-009；DoD 交付物与 4.3 节同步修订（DoD v1.1）。
