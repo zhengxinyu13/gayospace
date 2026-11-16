@@ -3,6 +3,7 @@ build/
 out/
 cmake-build-*/
 compile_commands.json
+coverage.xml
 
 # Compiled artifacts
 *.exe
