@@ -1,0 +1,56 @@
+name: ci
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+
+jobs:
+  build-test:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Qt 6.8 LTS (MSVC 2022 x64)
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: "6.8.*"
+          arch: win64_msvc2022_x64
+          cache: true
+
+      - name: Configure
+        run: cmake --preset ci
+
+      - name: Build
+        run: cmake --build --preset ci
+
+      - name: Unit tests (plain)
+        run: ctest --preset ci
+
+      - name: Install OpenCppCoverage (构建期工具，不随产品分发)
+        run: choco install opencppcoverage -y --no-progress
+
+      - name: Unit tests with coverage (Cobertura)
+        shell: pwsh
+        run: |
+          $env:PATH = "$env:PATH;C:\Program Files\OpenCppCoverage"
+          OpenCppCoverage.exe `
+            --quiet `
+            --sources "*\src\core\*" `
+            --export_type cobertura:coverage.xml `
+            -- ctest --preset ci
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          if (-not (Test-Path coverage.xml)) { Write-Error "coverage.xml 未生成"; exit 1 }
+
+      - name: Upload coverage report
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: coverage.xml
+
+      - name: Win32 platform API scan (DoD 2.3)
+        run: python tools/ci/check_win32_api.py
+
+      - name: UI compliance string check (AGENTS.md 第三节)
+        run: python tools/ci/check_ui_string.py
