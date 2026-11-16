@@ -1,6 +1,6 @@
 # GayoSpace 串口调试工具 PRD（草稿 v0.2）
 
-> 状态：草稿，待 Grayson review
+> 状态：**定稿（基础共识版 v1.0）**——2026-11-16 Grayson review 通过；后续新需求由 Grayson 同步更新本文档并走变更管理（AGENTS.md 第十二节）
 > 日期：2026-11-16
 > 产品名称：
 >
