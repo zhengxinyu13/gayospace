@@ -1,0 +1,45 @@
+{
+    "version": 6,
+    "configurePresets": [
+        {
+            "name": "base",
+            "hidden": true,
+            "generator": "Ninja",
+            "binaryDir": "${sourceDir}/out/build/${presetName}",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "RelWithDebInfo"
+            }
+        },
+        {
+            "name": "ci",
+            "inherits": "base",
+            "cacheVariables": {
+                "CMAKE_PREFIX_PATH": "$env{QT_ROOT_DIR}"
+            }
+        },
+        {
+            "name": "dev",
+            "inherits": "base",
+            "cacheVariables": {
+                "GAYOSPACE_BUILD_ID": "local-dev"
+            }
+        }
+    ],
+    "buildPresets": [
+        { "name": "ci", "configurePreset": "ci" },
+        { "name": "dev", "configurePreset": "dev" }
+    ],
+    "testPresets": [
+        {
+            "name": "ci",
+            "configurePreset": "ci",
+            "output": { "outputOnFailure": true },
+            "execution": { "stopOnFailure": false }
+        },
+        {
+            "name": "dev",
+            "configurePreset": "dev",
+            "output": { "outputOnFailure": true }
+        }
+    ]
+}

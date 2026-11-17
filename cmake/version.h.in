@@ -1,0 +1,10 @@
+#pragma once
+
+// 生成文件：generated/gayospace_version.h（唯一命名，避免与任何系统头文件同名遮蔽）
+namespace gayospace {
+
+// 编译期注入（顶层 CMakeLists.txt configure_file），运行时经 about 对话框与 CLI --version 读出
+inline constexpr const char* kVersion  = "@PROJECT_VERSION@";
+inline constexpr const char* kBuildId  = "@GAYOSPACE_BUILD_ID@";
+
+}  // namespace gayospace
