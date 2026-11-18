@@ -19,7 +19,15 @@ if(NOT EXISTS ${CMAKE_BINARY_DIR}/generated/gayospace_version.h)
     message(FATAL_ERROR "gayospace_version.h 未生成，检查 configure_file 输入 cmake/version.h.in")
 endif()
 
-find_package(Qt6 6.8 REQUIRED COMPONENTS Core Widgets Test)
+# ---- 跨平台结构探针开关（R-15）：ON 时只构建 core 与 core 单测，供 Linux CI job 使用 ----
+option(GAYOSPACE_CORE_ONLY "Build only the core layer and its unit tests (cross-platform CI probe)" OFF)
+
+if(GAYOSPACE_CORE_ONLY)
+    # 探针只用发行版 Qt（无 Widgets、版本可低于 6.8）；core 对 6.8 的 API 一致性由 Windows job 兜底
+    find_package(Qt6 6.4 REQUIRED COMPONENTS Core Test)
+else()
+    find_package(Qt6 6.8 REQUIRED COMPONENTS Core Widgets Test)
+endif()
 qt_standard_project_setup()
 
 include(FetchContent)
@@ -36,5 +44,11 @@ include(Catch)
 
 enable_testing()
 
-add_subdirectory(src)
+add_subdirectory(src/core)
+add_subdirectory(src/platform)
+if(NOT GAYOSPACE_CORE_ONLY)
+    add_subdirectory(src/cli)
+    add_subdirectory(src/gui)
+    add_subdirectory(src/app)
+endif()
 add_subdirectory(tests)

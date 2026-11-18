@@ -2,12 +2,17 @@ name: ci
 
 on:
   push:
-    branches: ["**"]
+    branches: [main]   # R-16：push 只留 main，其余分支走 pull_request 事件，避免每个 PR 跑两遍
   pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true   # R-16：同分支新推取消旧跑
 
 jobs:
   build-test:
     runs-on: windows-latest
+    timeout-minutes: 45   # R-16：防 runner 卡死烧时间
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -44,26 +49,65 @@ jobs:
       - name: Install OpenCppCoverage (构建期工具，不随产品分发)
         run: choco install opencppcoverage -y --no-progress
 
-      - name: Unit tests with coverage (Cobertura)
+      - name: Unit tests with coverage (Cobertura + HTML)
         shell: pwsh
         run: |
           $env:PATH = "$env:PATH;C:\Program Files\OpenCppCoverage"
           OpenCppCoverage.exe `
             --quiet `
+            --cover_children `   # R-02：不加此开关只统计 ctest.exe 自身，报告为假绿
             --sources "*\src\core\*" `
             --export_type cobertura:coverage.xml `
+            --export_type html:coverage-html `
             -- ctest --preset ci
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           if (-not (Test-Path coverage.xml)) { Write-Error "coverage.xml 未生成"; exit 1 }
 
-      - name: Upload coverage report
+      - name: Coverage gate (R-02：解析 line-rate 并按 TS-SW 第 12 节阈值断言，不达标即红)
+        run: python tools/ci/check_coverage.py
+
+      - name: Upload coverage report (xml)
         uses: actions/upload-artifact@v4
         with:
           name: coverage-report
           path: coverage.xml
 
+      - name: Upload coverage report (html)
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report-html
+          path: coverage-html
+
       - name: Win32 platform API scan (DoD 2.3)
         run: python tools/ci/check_win32_api.py
 
+      - name: Scanner self-tests (R-03：扫描器缺陷 fixture 固化，先于扫描执行)
+        run: python tests/tools/test_check_win32_api.py
+
       - name: UI compliance string check (AGENTS.md 第三节)
         run: python tools/ci/check_ui_string.py
+
+  # R-15：跨平台结构探针——只在 Linux 上编译 core + core 单测。
+  # 证明两件事：① core 无平台 API 依赖（正则扫描之外的硬验证）② core 不依赖 GUI/Widgets。
+  # 用发行版 Qt6（qt6-base-dev）而非 aqt 6.8：探针目的是结构验证（快速、零下载），
+  # API 与 6.8 的一致性由 Windows job 兜底；core-only 模式下 CMake 放宽 Qt 最低版本。
+  core-portability:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Qt 6 Core/Test (distro) + Ninja
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends qt6-base-dev ninja-build
+
+      - name: Configure (core-only probe)
+        run: cmake -S . -B out/build/coreprobe -G Ninja -DGAYOSPACE_CORE_ONLY=ON -DCMAKE_BUILD_TYPE=RelWithDebInfo
+
+      - name: Build core + core tests
+        run: cmake --build out/build/coreprobe
+
+      - name: Unit tests
+        run: ctest --test-dir out/build/coreprobe --output-on-failure
