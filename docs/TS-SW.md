@@ -20,7 +20,7 @@
 | 单元测试 | Catch2 v3 | BSL-1.0 宽松许可；Qt 信号槽相关测试辅以 Qt Test（DoD 2.1 硬前置，随本 TS 定稿锁定） |
 | 覆盖率 | OpenCppCoverage 0.9.9.0（CLI） | 生成 Cobertura 报告入 CI；上游仓库 2026-09 已归档（只读），CLI 在 VS 2022 构建产物上可正常工作，v1.0 不迁移；v1.1 评估迁移至 Microsoft.CodeCoverage.Console（需确认 CI 的 VS 许可层级），归档风险登记于第 14 节待核。**构建/测试期工具，License 与产品无关、不随产品分发**；THIRD-PARTY-NOTICES 分"运行时依赖"与"构建期工具"两节登记 |
 | CI | GitHub Actions（windows-latest） | 构建 + 单测 + Win32 扫描 + UI 字符串检查 + 覆盖率 |
-| 版本 | SemVer，编译期注入 `GAYOSPACE_VERSION` | 运行时"关于"对话框与 CLI `--version` 可读出 |
+| 版本 | SemVer，编译期生成 `gayospace::kVersion` 常量（`cmake/version.h.in` → `gayospace_version.h`） | 运行时"关于"对话框与 CLI `--version` 可读出 |
 
 ## 2. 架构分层与目录结构
 
@@ -36,7 +36,8 @@ src/
 ├── gui/                   # Widgets 前端：主窗口、波形页、串口面板、脚本编辑器（第 5 节）
 ├── platform/              # 平台专属收敛层：唯一允许平台 API 的目录（第 11 节）；
 │                          #   v1.0 含崩溃转储钩子（Win32 MiniDumpWriteDump 调用收敛于此，第 10.7 节）
-└── app/                   # main 入口：--cli 标志分流到 cli/ 或 gui/
+└── app/                   # v1.0 不使用（目录预留）：未来若合流为单二进制，此处做 --cli 分流入口；
+                             #   v1.0 实际为双二进制（gayospace-cli.exe + GayoSpace.exe），见 src/app/CMakeLists.txt
 tests/
 ├── unit/                  # Catch2：core 全部
 ├── integration/           # 虚拟串口对捞
@@ -188,12 +189,14 @@ function reset() { ... }
 
 ```
 用法（v1.0 三类场景，对应 PRD F-07；list-ports 经 2026-11-16 Grayson 批准加入）：
-  gayospace capture --port COM3 --baud 115200 --protocol justfloat|firewater|script [--script file.js]
+  gayospace-cli capture --port COM3 --baud 115200 --protocol justfloat|firewater|script [--script file.js]
                     --channels N (--duration SEC | --samples COUNT) --out data.csv|data.json [--hex-echo]
-  gayospace send --port COM3 --baud 115200 --data "01 02 03" [--hex] [--repeat N --interval MS]
-  gayospace list-ports        # 枚举可用串口（JSON 输出：设备名、描述、硬件 ID），供 Agent/脚本探测
-  gayospace --version
+  gayospace-cli send --port COM3 --baud 115200 --data "01 02 03" [--hex] [--repeat N --interval MS]
+  gayospace-cli list-ports    # 枚举可用串口（JSON 输出：设备名、描述、硬件 ID），供 Agent/脚本探测
+  gayospace-cli --version
 ```
+
+> 二进制定名 `gayospace-cli.exe`（2026-11-18 R-04）：与 GUI `GayoSpace.exe` 在 Windows 大小写不敏感文件系统上无法同目录共存，故 CLI 不得命名为 `gayospace.exe`。
 
 - **`--out` 对 capture 为必选**（评审 #9）：省略 = 参数错误，退出码 2。理由：stdout 仅人类可读进度/日志，结构化数据只落文件，管道判读永不混入噪声。
 - JSON 输出 schema（capture）：
