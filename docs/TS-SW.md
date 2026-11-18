@@ -13,14 +13,14 @@
 | 项 | 选型 | 说明 |
 | --- | --- | --- |
 | 语言 | C++20 | `std::span`、`std::atomic` 等现代设施；与参考项目 serial_debug_tool 同代 |
-| UI 框架 | Qt 6.8 LTS（MSVC 2022 x64 工具链） | Widgets 优先于 QML；6.8 为 LTS，5 年维护窗口覆盖 v1.0 生命周期；6.12 LTS 为最后一个支持 Win10 的版本，列入 v2.0 + TODO-007 升级候选，不进 v1.0 基线 |
+| UI 框架 | Qt 6.8 LTS（MSVC 2022 x64 工具链） | Widgets 优先于 QML；6.8 为 LTS；6.12 LTS 为最后一个支持 Win10 的版本（出处：Qt 官方邮件列表 Maurice Kalinowski 2026-09，https://lists.qt-project.org/pipermail/development/2026-September/047480.html ），列入 v2.0 + TODO-007 升级候选，不进 v1.0 基线。**LTS 补丁对商业客户开放**（同出处：LTS 5 年支持 + Extended Security Maintenance 仅商业订阅）——开源分发实际可得的 6.8 补丁范围与升级节奏预案见第 14 节待核 #6 |
 | 构建 | CMake ≥ 3.21 | 前置依赖脚本化；MSVC x64 工具链 |
-| 脚本引擎 | QJSEngine | Qt 自带零第三方依赖，仅用于协议解析（PRD F-04 边界） |
+| 脚本引擎 | QJSEngine（**属 Qt6::Qml 模块**，打包计入 Qt6Qml.dll 数 MB） | Qt 自带零第三方依赖，仅用于协议解析（PRD F-04 边界） |
 | 波形渲染 | Qwt | 已核对：Qwt License v1.0 = LGPL + 子类化/静态链接例外（出处 https://qwt.sourceforge.io/qwtlicense.html ，核对日 2026-11-16）；动态链接，列入 THIRD-PARTY-NOTICES |
 | 单元测试 | Catch2 v3 | BSL-1.0 宽松许可；Qt 信号槽相关测试辅以 Qt Test（DoD 2.1 硬前置，随本 TS 定稿锁定） |
 | 覆盖率 | OpenCppCoverage 0.9.9.0（CLI） | 生成 Cobertura 报告入 CI；上游仓库 2026-09 已归档（只读），CLI 在 VS 2022 构建产物上可正常工作，v1.0 不迁移；v1.1 评估迁移至 Microsoft.CodeCoverage.Console（需确认 CI 的 VS 许可层级），归档风险登记于第 14 节待核。**构建/测试期工具，License 与产品无关、不随产品分发**；THIRD-PARTY-NOTICES 分"运行时依赖"与"构建期工具"两节登记 |
 | CI | GitHub Actions（windows-latest） | 构建 + 单测 + Win32 扫描 + UI 字符串检查 + 覆盖率 |
-| 版本 | SemVer，编译期注入 `GAYOSPACE_VERSION` | 运行时"关于"对话框与 CLI `--version` 可读出 |
+| 版本 | SemVer，编译期生成 `gayospace::kVersion` 常量（`cmake/version.h.in` → `gayospace_version.h`） | 运行时"关于"对话框与 CLI `--version` 可读出 |
 
 ## 2. 架构分层与目录结构
 
@@ -36,7 +36,8 @@ src/
 ├── gui/                   # Widgets 前端：主窗口、波形页、串口面板、脚本编辑器（第 5 节）
 ├── platform/              # 平台专属收敛层：唯一允许平台 API 的目录（第 11 节）；
 │                          #   v1.0 含崩溃转储钩子（Win32 MiniDumpWriteDump 调用收敛于此，第 10.7 节）
-└── app/                   # main 入口：--cli 标志分流到 cli/ 或 gui/
+└── app/                   # v1.0 不使用（目录预留）：未来若合流为单二进制，此处做 --cli 分流入口；
+                             #   v1.0 实际为双二进制（gayospace-cli.exe + GayoSpace.exe），见 src/app/CMakeLists.txt
 tests/
 ├── unit/                  # Catch2：core 全部
 ├── integration/           # 虚拟串口对捞
@@ -62,20 +63,45 @@ tests/
 
 **QSerialPort 线程亲和性时序**：`QSerialPort` 实例在 worker 线程内构造（worker 对象 moveToThread 到专职线程，在其 `started` 信号槽里 `new QSerialPort(this)`），读写、readyRead、参数设置全部发生在该线程；主线程只通过队列连接的信号槽下发"打开/关闭/改参数"命令。一个端口一个 worker，杜绝跨线程访问。
 
-### 3.2 SPSC 环形缓冲
+### 3.2 SPSC 环形缓冲（R-07 并发契约修订，2026-11-18）
 
 - 存储：预分配连续 `std::byte` 数组（默认 4 MB，评审可调），读写位置用 `std::atomic<uint64_t>` 累计序号（单调递增，取模寻址），无锁。
-- 传递单位：字节流（不按块分配内存，解析线程按序号区间直接读，**零拷贝**——读侧在写侧未越过头部的区间内可安全读）。
-- 满载策略：丢最旧（推进读序号）并累加丢弃字节计数（PRD 失效表"接收缓冲暴涨"行）。
+- 传递单位：字节流（不按块分配内存，解析线程按序号区间直接读，**零拷贝**——读侧只读写侧未覆盖的区间）。
+- **原子量与内存序（并发安全前提，原文"写侧推进读序号"与读侧安全读相矛盾，本条修正）**：
+  - `writePos`：写侧独占写（release）；
+  - `readPos`：读侧发布消费进度（release），读侧读它（acquire）；推进由双方 CAS 完成（谁推得远谁生效），单调不减；
+  - `readInFlight`：读侧正在处理的批次起始序号（读侧写，写侧 acquire）——**写侧覆盖判定的边界用它，而不是 readPos**；
+  - `droppedBytes`：丢弃字节计数（relaxed 累加，读侧汇总显示）。
+- **读侧协议**：批量取数前先写 `readInFlight = readPos` → 拷贝区间数据 → 处理完发布 `readPos = 批次末尾`（release）→ 清 `readInFlight = readPos`。批次区间永不被写侧触碰。
+- **满载策略（保留 PRD"丢最旧"，语义修正为安全实现）**：写侧可覆盖的最老边界 = `max(readPos, readInFlight)`；空间不足时写侧推进 `readPos` 跳过未读区间（跳过字节计入 `droppedBytes`）再覆盖。读侧在飞的区间永不被覆盖 → 无数据竞争、无 UB。
+- 批量读 API 返回语义：返回 `[begin, end)` 有效区间快照（拷贝语义，调用方处理与缓冲解耦）；区间为空立即返回，不阻塞。
+- `droppedBytes` 只计"写侧覆盖跳过的未读字节"；解析错误另计（`frames_bad` / `bytes_dropped_sync`），三者不相混。
 - 深度：8ch×1kHz JustFloat 帧长 36 B（8×4+4），36 kB/s 下 4 MB ≈ **111 秒**缓冲深度，远超渲染周期。
 
-### 3.3 ChannelStore（核心数据模型，阻塞项 #3 落实）
+### 3.3 ChannelStore（核心数据模型；R-09 内存预算修订，2026-11-18）
 
 - **通道数上限**：32 通道（v1.0 上限，编译期常量 `MAX_CHANNELS`；PRD F-05 要求 ≥8）。
-- **采样存储**：每通道一个环形 double 数组，容量按时间窗 600 秒 @1kHz（=600k 点/通道，8 通道 ≈ 38 MB 上界，可配）；时间戳由解析线程统一打（steady_clock）。
-- **并发模型**：**双缓冲 + seqlock**——解析线程写后台缓冲，写完原子递增序号（奇=写中）；GUI/CLI 读时取序号，读完复核，奇数或序号变化则重读（有界重试 2 次，仍未取到即跳过本渲染周期，下周期再取）。单写多读，无需互斥锁，读侧无阻塞。
+- **存储类型：`float`**（协议引擎输出本就是 float，原文 double 纯属浪费——内存直接减半）。
+- **内存预算表**（单份存储容量 = 通道数 × 窗长 × 4 B；**窗长可配**，默认 600 s @1kHz）：
+
+| 通道数 | 窗长 600 s（默认） | 窗长 60 s |
+| --- | --- | --- |
+| 8（典型） | 19.2 MB | 1.9 MB |
+| 16 | 38.4 MB | 3.8 MB |
+| 32（上限） | **76.8 MB（内存上界）** | 7.7 MB |
+
+  原文"8 通道 ≈ 38 MB"按 double 误算且未覆盖 32 通道上限（double 口径实为 153.6 MB）；定稿口径：float + 按当前配置通道数分配 + 窗长可调，上界 76.8 MB。环形缓冲**按当前配置的通道数分配，通道数变更时重建**（4.4 切换时序已覆盖）。
+- **并发模型（修订，废止"双缓冲"表述）**：每通道一份环形数组 + seqlock 序号发布（奇=写中）；解析线程**原地写入、不复制整块数据**（原文"写后台缓冲再切换"即变相双份内存，删）；GUI/CLI 读时取序号，读完复核，奇数或序号变化则重读（有界重试 2 次，仍未取到即跳过本渲染周期）。单写多读，无需互斥锁，读侧无阻塞。
 - **快照语义**：渲染每次取"最新完整状态"，按需回溯窗口（默认显示最近 10 秒，缩放可到全缓冲）；暂停模式下照常写入、仅渲染不推进（见 5.3）。
 - **协议差异的通道数语义**：JustFloat = 固定 N（用户配置）；FireWater = 按行字段数动态（以首行为基准，后续行字段数变化计错误）；Script = 按 `parse` 返回数组长度动态（上限 32，超限截断+计数）。通道数变化时 ChannelStore 重建列布局、波形页提示通道映射已重排。
+
+### 3.4 时间基准与采样率（R-06 新增，2026-11-18）
+
+- **问题**：USB 串口是批量到达的（典型 1~16 ms 一批），按到达时刻打点会让同批样本挤在同一时刻、下一批再跳变——x 轴抖动可达数十个百分点，"超调持续多久"这类 PID 关键读数直接失真。
+- **fs 配置**：采样率由用户设置（字节流不携带）：GUI 波形页配置项；CLI `--rate FS`（Hz）。JustFloat 与 FireWater 均适用。
+- **时间生成规则**：帧显示时间 = `t0 + frame_index / fs`（`frame_index` 为解析器产出的单调递增帧序号，绝不因到达批次重置）；`t0` 仅在两个时机校准为当前 `steady_clock`——①会话首帧；②串口空闲超时（≥100 ms 无新帧）后恢复。同一连续流内绝不重打点。
+- **fs 未设置时的语义**：波形 x 轴显示"样本序号"（frame_index），**不假装时间**；CLI JSON 输出 `t_index` 字段替代 `t_ms`。宁可显式缺省，不可静默失真。
+- CLI 契约联动见第 6 节（`--rate` 参数与 JSON meta `rate` 字段）。
 
 ## 4. 协议引擎
 
@@ -83,8 +109,9 @@ tests/
 
 ```cpp
 struct ParseFrame {
-    std::chrono::steady_clock::time_point t;
-    std::array<float, MAX_CHANNELS> ch;   // 仅前 ch_count 有效
+    std::chrono::steady_clock::time_point t;   // 到达校准时间戳（仅用于 t0 校准，见 3.4；显示时间不用它）
+    uint64_t frame_index;                      // 单调递增帧序号（显示时间 = t0 + index/fs，见 3.4）
+    std::array<float, MAX_CHANNELS> ch;        // 仅前 ch_count 有效
     uint8_t ch_count;
 };
 
@@ -115,14 +142,18 @@ struct Frame {
 };
 ```
 
-- 解析策略：扫描字节流找帧尾 → 回推 `CH_COUNT×4` 字节为有效负载 → 重同步；连续失败 8 帧（可配）后半字节步进重同步。
-- 帧尾歧义处理：负载中通道值恰为 +Inf 时字节序列与帧尾重合——策略为**帧尾命中后校验回推区间对齐率**（帧距 = N×4+4 整数倍），歧义帧按最老匹配优先丢弃并计数；真 +Inf 通道值本身在 PID 场景中即异常值，丢帧可接受且可从统计发现。
+- 解析策略：扫描字节流找帧尾 → 回推 `CH_COUNT×4` 字节为有效负载 → 重同步。
+- **重同步状态机（R-26 修订，废止原文"连续失败 8 帧半字节步进"——JustFloat 无帧头无 CRC，帧尾扫描必然"成一帧"，不存在可计数的失败信号，原规则不可实现）**：
+  1. 命中帧尾 → 回推区间做**帧距对齐校验**：本帧尾位置与上一确认帧尾的间距须为 `N×4+4` 的整数倍；
+  2. 整数倍 → 确认帧，产出 `ParseFrame`；非整数倍 → 按**最老匹配优先**丢弃歧义帧并 `frames_bad` 计数（`frames_bad` 的精确定义 = 帧距非整倍数的丢弃次数），字节流继续扫描；
+  3. 连续歧义超过阈值（可配，默认 8）→ 执行半字节步进重扫（此时它是**降级手段**而非触发规则本身）。
+- 帧尾歧义处理：负载中通道值恰为 +Inf 时字节序列与帧尾重合——并入上述对齐校验统一判定；真 +Inf 通道值本身在 PID 场景中即异常值，丢帧可接受且可从统计发现。
+- **标准测试向量**（随单测落地）：正常帧流、残帧截断、粘帧（两帧连发）、帧尾字节在负载中重现（+Inf 构造帧）、帧尾错位后重同步、`CH_COUNT` 配错时的持续 `frames_bad`。
 
 ### 4.2 FireWater（出处：https://www.vofa.plus/docs/learning/dataengines/firewater/ ，核对日 2026-11-16）
 
 - 格式：`"<any>:ch0,ch1,...,chN\n"`；`any` 与冒号可省略；`\n` 不可省略，兼容 `\r\n` 与 `\n\r`；`any` 不得为 `image`。
-- **`any:` 前缀判定规则（已核对，2026-11-16）**：行首至第一个 `:` 之间的片段，若不含数字则视为前缀剔除（如 `channels:1,2,3`）；若含数字则不剔除，整行进入宽容解析（如 `1.0:2.0,3.0` → 字段 `1.0:2.0` 经 `strtof` 解析出 1.0，冒号终止该字段）。
-- 判定规则已与 VOFA+ 官方文档核对（出处 https://vofa.plus/docs/learning/dataengines/firewater/ ，核对日 2026-11-16）。官方约定 any 与冒号可为空，本条"行首冒号前片段是否含数字"的判定是官方语义的工程落地；待核 #4 的 spike 用于确认边界案例，规则本身不再变更。
+- **`any:` 前缀判定规则（R-25 收窄修订，2026-11-18；原"含数字则整行宽容"规则有误判面）**：行首至第一个 `:` 之间的片段，若**仅由字母与下划线组成（或为空）**则视为前缀剔除（如 `channels:1,2,3`）；片段含数字或其他符号则不剔除，整行进入宽容解析（如 `1.0:2.0,3.0` → 字段 `1.0:2.0` 经 `strtof` 解析出 1.0）。**判定依据**：官方约定 `any` 为任意字符串（除 `image`），但实用反例 `ch1:1,2,3`、`v2:...`、`#1:...` 在原规则下会把通道名误当数据解析出 NaN 通道——字母/下划线白名单覆盖全部真实前缀场景且零误判。**`any` 为 `image` 的行按官方约定整行丢弃并计数**（原规则会被静默吞掉，已修正）。待核 #4 spike 用例清单追加反例：`ch1:1,2,3` / `v2:1,2` / `#1:1,2` / `image:1,2` / `:1,2`（空前缀）/ 无冒号行。
 - 解析策略：按行缓冲 → 前缀判定 → 逗号切分 → 逐字段 `strtof` 宽容解析（失败字段置 NaN 并计入错误计数，不丢整行）。
 
 ### 4.3 Script（自定义 JS 协议）
@@ -137,7 +168,9 @@ function parse(bytes) { ... }
 function reset() { ... }
 ```
 
-- 引擎侧保证：喂入顺序与串口到达顺序一致；错误即捕获、不崩溃；单次执行超时 100ms 强制中断（可配）。
+- 引擎侧保证：喂入顺序与串口到达顺序一致；错误即捕获、不崩溃；单次执行超时 100ms 强制中断（可配）。**超时中断的实现前提（R-14 spike，编码阶段验证）**：`QJSEngine::setInterrupted()` 仅在解释器安全点生效，且 Qt 未承诺跨线程调用安全——spike 必须实测 `while(true){}` 死循环能否被**解析线程内**的定时器中断；不可靠则降级方案二选一：独立进程执行脚本 + 超时 kill，或仅记录告警不强制中断（需 Grayson 确认取舍）。
+- **信任边界**（R-14）：QJSEngine 无安全沙箱，脚本以进程权限运行。明确约定：**脚本由用户本人提供，视为可信输入**；产品不提供、不鼓励加载来历不明的脚本（写入 README 安全说明）。
+- **依赖归属**（R-14）：QJSEngine 属 `Qt6::Qml` 模块而非 Core——技术栈与打包预算计入 `Qt6Qml.dll`（约数 MB），第 1 节技术栈表已同步。
 - **QJSEngine 实例归属**：解析线程持有唯一的执行实例；GUI 脚本编辑器的语法检查使用 **GUI 线程内独立的临时 QJSEngine 实例**（只做 checkSyntax，不复用、不共享任何对象），两实例零交叉，杜绝跨线程访问。
 - 编辑器提供错误行号定位与 2 个内置示例（固定 4 字节 float 帧 / ASCII CSV）。
 
@@ -188,12 +221,16 @@ function reset() { ... }
 
 ```
 用法（v1.0 三类场景，对应 PRD F-07；list-ports 经 2026-11-16 Grayson 批准加入）：
-  gayospace capture --port COM3 --baud 115200 --protocol justfloat|firewater|script [--script file.js]
-                    --channels N (--duration SEC | --samples COUNT) --out data.csv|data.json [--hex-echo]
-  gayospace send --port COM3 --baud 115200 --data "01 02 03" [--hex] [--repeat N --interval MS]
-  gayospace list-ports        # 枚举可用串口（JSON 输出：设备名、描述、硬件 ID），供 Agent/脚本探测
-  gayospace --version
+  gayospace-cli capture --port COM3 --baud 115200 --protocol justfloat|firewater|script [--script file.js]
+                    --channels N [--rate FS] (--duration SEC | --samples COUNT) --out data.csv|data.json [--hex-echo]
+  gayospace-cli send --port COM3 --baud 115200 --data "01 02 03" [--hex] [--repeat N --interval MS]
+  gayospace-cli list-ports    # 枚举可用串口（JSON 输出：设备名、描述、硬件 ID），供 Agent/脚本探测
+  gayospace-cli --version
 ```
+
+- **`--rate FS`**（R-06）：采样率 Hz，capture 可选；缺省时 JSON 输出 `t_index`（样本序号）替代 `t_ms`（时间基准语义见 3.4——宁可显式缺省，不静默失真）。
+
+> 二进制定名 `gayospace-cli.exe`（2026-11-18 R-04）：与 GUI `GayoSpace.exe` 在 Windows 大小写不敏感文件系统上无法同目录共存，故 CLI 不得命名为 `gayospace.exe`。
 
 - **`--out` 对 capture 为必选**（评审 #9）：省略 = 参数错误，退出码 2。理由：stdout 仅人类可读进度/日志，结构化数据只落文件，管道判读永不混入噪声。
 - JSON 输出 schema（capture）：
@@ -201,20 +238,26 @@ function reset() { ... }
 ```json
 {
   "meta": {"tool": "gayospace", "version": "1.0.0", "port": "COM3", "baud": 115200,
-           "protocol": "justfloat", "channels": 8, "started_at": "2026-11-16T12:00:00+08:00"},
+           "protocol": "justfloat", "channels": 8, "rate": 1000, "started_at": "2026-11-16T12:00:00+08:00"},
   "samples": [{"t_ms": 0, "ch": [1.0, 2.0]}, {"t_ms": 1, "ch": [1.1, 2.0]}],
   "stats": {"rx_bytes": 320000, "dropped_bytes": 0, "parse_errors": 0}
 }
 ```
 
-- CSV：首行 `t_ms,ch0,ch1,...`，NaN 输出空字段。
+- `t_ms` = round(frame_index × 1000 / rate)（R-06 时间基准语义，见 3.4）；`--rate` 缺省时该字段改名为 `t_index`（原始帧序号）。
+
+- CSV：首行 `t_ms,ch0,ch1,...`；`--rate` 缺省时首列改名 `t_index`（与 JSON meta 同规则，R-40 统一口径），NaN 输出空字段。
 - **退出码边界**（评审 #9）：`0` 成功（**个别帧 parse_error 是统计项，计入 `stats.parse_errors`，不影响退出码 0**）；`2` 参数错误；`3` 串口错误（打不开 / 中途断开且重连失败 / **端口被 GUI 或其他程序占用**）；`4` 协议致命错误（**仅两类：脚本抛出未捕获异常、脚本执行超时被强制中断**）；`5` IO 错误（落盘失败）；`130` 用户中断（Ctrl+C，已收数据照常落盘后退出）。Agent 调用方判定：退出码 0 且 parse_errors 少量 → 可信数据；退出码 4 → 脚本问题，重试无效；退出码 3 → 环境/占用问题，可换端口重试。
-- 完整性：异常退出时已解析数据必须落盘（原子写：临时文件 + rename）。
+- **130 的实现约束**（R-13）：Windows 控制台 Ctrl+C 需 `SetConsoleCtrlHandler`——平台 API，实现收敛 `src/platform/` 并同步第 11 节符号表（已登记）；禁止在 core/cli 内联平台调用。
+- **JSON 流式写**（R-13）：samples 不全量驻留内存（10 分钟 × 8ch × 1kHz ≈ 30~60 MB 文本）；实现为**流式分段写**——`meta` 行 → 逐帧 sample 行（JSON Lines 语义，外层包装保持单文件合法 JSON：逐段写 `"samples": [` + 行间逗号 + `], "stats": {...}` 收尾）。CSV 天然流式。`--duration` 上限 3600 秒（防呆，超出即参数错误退出码 2）。
+- 完整性：异常退出时已解析数据必须落盘（**原子写语义修正，R-13**：临时文件写完 → `MoveFileEx(MOVEFILE_REPLACE_EXISTING)` 覆盖目标——原文"临时文件 + rename"在 Windows 上目标已存在时 `QFile::rename` 返回 false，重复执行 `--out data.csv` 必失败；`MoveFileEx` 调用收敛 `platform/`，符号表已登记）。
 - **端口占用提示**：CLI 打不开端口时错误信息注明"可能被 GUI 或其他程序占用"。
 
 ## 7. 会话配置
 
-- 位置：`QStandardPaths::AppConfigLocation`（Windows 下 `%APPDATA%\GayoSpace\`）JSON 文件。
+- **路径策略（便携模式，R-01 方案 A，2026-11-18 Grayson 拍板）**：v1.0 默认便携模式——会话配置存 **exe 同目录 `./config/`**，崩溃转储存 `./crash/`；启动时对 exe 目录做一次写探测（创建并删除临时文件），失败则回落 `%LOCALAPPDATA%/GayoSpace/` 并**状态栏提示"已切换到用户目录模式"**。注册表零写入、系统目录零写入（对应 DoD 4.3）。
+- **回落路径的实现口径**：用 `QStandardPaths::AppConfigLocation`（Qt 6 实测语义：Windows 下为 `C:/Users/<USER>/AppData/Local/<APPNAME>`，**Local 而非 Roaming**——本节原文 `%APPDATA%` 为事实性错误，2026-11-18 修正）。
+- **GUI 入口必须设置** `organizationName` / `applicationName` / `applicationVersion`（`main()` 开头），保证回落路径可预测；配一条单测打印实际路径断言前缀。
 - 内容：串口参数、协议选择与通道数、玻璃浓度、性能模式开关、波形通道开关与颜色、窗口布局、发送历史（上限 20 条）、CLI 默认参数。
 - 损坏容错：解析失败即备份坏文件（`.bad` 后缀）+ 回落默认值 + 状态栏提示（对应 DoD 2.2 会话配置用例）。
 
@@ -260,14 +303,15 @@ function reset() { ... }
 | 1 | 串口意外断开 | 8.3 重连策略（指数退避 ×10 上限 + 占用不重试） | 自动化（虚拟串口拔出模拟）+ 手工（物理拔线） |
 | 2 | 接收缓冲暴涨 | 3.2 环形缓冲丢最旧 + 丢弃计数 + 状态栏提示 | 自动化（灌数用例） |
 | 3 | 异常/残缺帧 | 4.1 重同步、4.2 宽容解析、4.3 脚本超时 100ms | 自动化（标准畸形数据集） |
-| 4 | 波形绘制过载 | 渲染侧抽稀：全部通道合计单帧绘制点数上限 20k，超出按步长抽稀并**状态栏提示"当前负载超出实时绘制能力，已降采样"**；数据采集不丢（降的是显示密度） | 自动化（超载灌数 + 断言 P99 与提示出现） |
+| 4 | 波形绘制过载 | 渲染侧降采样（**R-08 修订**）：绘制点数超出画布像素预算时按**每像素桶取 min/max 两点**——点数不变、尖峰不丢、包络视觉正确；**禁用步长抽稀**（会整帧跳过偶发尖峰，PID 调参要找的超调/振铃/毛刺恰是尖峰）。降采样只改变显示密度、不改变存储与落盘数据；超载时**状态栏提示"当前负载超出实时绘制能力，已降采样"**。验收断言：注入单点尖峰后缩放到全窗，该尖峰仍可见 | 自动化（超载灌数 + 断言 P99、提示出现、尖峰可见） |
 | 5 | 误发送 | 8.1 Hex 实时校验 + 定时发送状态机（双处红点标识 + 启动确认条 + 一键停止） | 自动化（校验规则）+ 手工（UI 状态机） |
 | 6 | 日志文件写入失败 | GUI 日志写失败：停写 + 内存缓冲保留（上限 10MB，超限丢最旧）+ 弹窗提示原因，恢复写路径后可续写；CLI 落盘失败 = 退出码 5 | 自动化（只读目录/配额盘模拟） |
-| 7 | 软件崩溃 | `platform/` 层注册 `SetUnhandledExceptionFilter` → MiniDumpWriteDump 写 `%APPDATA%\GayoSpace\crash\` 转储（含版本号、异常码）；**下次启动检测到新转储即提示"上次异常退出，转储文件位置：…"**（仅提示，不自动上传）。Win32 调用收敛在 `platform/`，扫描规则豁免区 | 手工（注入空指针验证转储与提示） |
+| 7 | 软件崩溃 | `platform/` 层崩溃钩子（**R-27 覆盖面修订**）：`SetUnhandledExceptionFilter` → MiniDumpWriteDump 写转储（含版本号、异常码），**补 `AddVectoredExceptionHandler`（抓栈溢出/堆破坏的第一现场）+ `std::set_terminate`（catch abort/terminate 路径）**；明示 best-effort 边界：纯硬件级进程被杀、断电等场景抓不到，不承诺 100%。**转储路径（R-01 方案 A）**：便携模式写 exe 同目录 `./crash/`；回落用户目录模式时写 `%LOCALAPPDATA%/GayoSpace/crash/`。**下次启动检测到新转储即提示"上次异常退出，转储文件位置：…"**（仅提示，不自动上传）。Win32 调用收敛在 `platform/`，扫描规则豁免区；**实现时注意：`platform/` 库必须被 GUI 与 CLI 两个 target 显式链接（当前是空 INTERFACE 库、无 target 链接，接线遗漏会导致钩子不生效）** | 手工（注入空指针验证转储与提示） |
 
 ## 11. 平台层边界与 Win32 扫描规则
 
-- **唯一豁免目录**：`src/platform/`（v1.0 已知内容：崩溃转储钩子；潜在：DWM 贴边适配）。
+- **唯一豁免目录**：`src/platform/`（v1.0 已知内容：崩溃转储钩子、CLI Ctrl+C 处理、原子替换写；潜在：DWM 贴边适配）。
+- **平台层符号表初始版**（新增/变更走维护机制，随实现同步扩充）：`SetUnhandledExceptionFilter`、`AddVectoredExceptionHandler`、`MiniDumpWriteDump`、`SetConsoleCtrlHandler`、`MoveFileEx`（原子替换语义）。
 - **CI 扫描规则**（对 `src/core`、`src/gui`、`src/cli`、`src/app` 生效；命中即红）：
   - 头文件包含：`<windows.h>`、`<windowsx.h>`、`<winsock2.h>`、`<process.h>`、`<io.h>`、`<direct.h>`、`<conio.h>`
   - **API 调用形态匹配**（评审细节项：不做裸字符串匹配，避免误伤注释/日志文本）：`::CreateFile(`、`CreateFileW(`、`CreateFileA(`、`RegOpenKey`、`::MessageBox(`、`MessageBoxW(`、`CoInitialize`、`WaitForSingleObject`、`::GetLastError(`；对 `//` 与 `/* */` 注释内容及字符串字面量先行剔除后再匹配（词法级处理，CI 侧 Python 预处理脚本 + 规则表实现）。
@@ -299,6 +343,7 @@ function reset() { ... }
 | 3 | com0com 签名安装方式 | Win10/11 验证 | **编码阶段 spike**（搭集成测试环境时执行） |
 | 4 | FireWater 协议比对 | 规则已定（见 4.2，不再变更） | **收窄为边界案例 spike**：仅实测确认边界案例 |
 | 5 | Qwt 透明背景 | 见 5.1，结论回填 | **编码阶段 spike #1**（Qwt × Glassmorphism 兼容性实测） |
+| 6 | Qt 6.8 LTS 开源用户可得的补丁范围与升级节奏预案（R-21，2026-11-18 新增） | LTS 补丁面向商业客户（出处见第 1 节）；需核实开源用户能拿到的 6.8.x 补丁窗口，并给出安全补丁到期后的升级路径预案（如届时评估 6.12 LTS 或社区维护分支） | 编码阶段并行核实，结论回填第 1 节 |
 
 ## 15. 决议记录
 
@@ -306,3 +351,4 @@ function reset() { ... }
 - 2026-11-16：Glassmorphism 视觉规范经 Grayson 指定纳入 5.1 节。
 - 2026-11-16：外部评审（DeepSeek）6 阻塞项 + 重要/细节项全部纳入本 v0.2，逐条落点见第 8、10 节及正文标注。
 - 2026-11-16：待核项三项关闭（Grayson 提交结论）——Qt 6.8 LTS 锁定、OpenCppCoverage 选项 A（v1.0 沿用 + v1.1 评估迁移）、FireWater any: 规则核对一致。
+- 2026-11-18：第 1 轮全面评审（Grayson × DeepSeek，本地评审记录，未随仓库发布）R-01/R-04/R-06~R-09/R-13/R-14/R-21/R-22/R-25/R-26/R-27 纳入本版：便携模式方案 A（Grayson 拍板）、波形数据模型四项修订、协议解析规则收窄、CLI 契约落地前提补齐、新增待核 #6（Qt 补丁范围）。
