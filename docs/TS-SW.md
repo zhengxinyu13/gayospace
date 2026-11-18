@@ -13,7 +13,7 @@
 | 项 | 选型 | 说明 |
 | --- | --- | --- |
 | 语言 | C++20 | `std::span`、`std::atomic` 等现代设施；与参考项目 serial_debug_tool 同代 |
-| UI 框架 | Qt 6.8 LTS（MSVC 2022 x64 工具链） | Widgets 优先于 QML；6.8 为 LTS，5 年维护窗口覆盖 v1.0 生命周期；6.12 LTS 为最后一个支持 Win10 的版本，列入 v2.0 + TODO-007 升级候选，不进 v1.0 基线 |
+| UI 框架 | Qt 6.8 LTS（MSVC 2022 x64 工具链） | Widgets 优先于 QML；6.8 为 LTS；6.12 LTS 为最后一个支持 Win10 的版本（出处：Qt 官方邮件列表 Maurice Kalinowski 2026-09，https://lists.qt-project.org/pipermail/development/2026-September/047480.html ），列入 v2.0 + TODO-007 升级候选，不进 v1.0 基线。**LTS 补丁对商业客户开放**（同出处：LTS 5 年支持 + Extended Security Maintenance 仅商业订阅）——开源分发实际可得的 6.8 补丁范围与升级节奏预案见第 14 节待核 #6 |
 | 构建 | CMake ≥ 3.21 | 前置依赖脚本化；MSVC x64 工具链 |
 | 脚本引擎 | QJSEngine（**属 Qt6::Qml 模块**，打包计入 Qt6Qml.dll 数 MB） | Qt 自带零第三方依赖，仅用于协议解析（PRD F-04 边界） |
 | 波形渲染 | Qwt | 已核对：Qwt License v1.0 = LGPL + 子类化/静态链接例外（出处 https://qwt.sourceforge.io/qwtlicense.html ，核对日 2026-11-16）；动态链接，列入 THIRD-PARTY-NOTICES |
@@ -343,6 +343,7 @@ function reset() { ... }
 | 3 | com0com 签名安装方式 | Win10/11 验证 | **编码阶段 spike**（搭集成测试环境时执行） |
 | 4 | FireWater 协议比对 | 规则已定（见 4.2，不再变更） | **收窄为边界案例 spike**：仅实测确认边界案例 |
 | 5 | Qwt 透明背景 | 见 5.1，结论回填 | **编码阶段 spike #1**（Qwt × Glassmorphism 兼容性实测） |
+| 6 | Qt 6.8 LTS 开源用户可得的补丁范围与升级节奏预案（R-21，2026-11-18 新增） | LTS 补丁面向商业客户（出处见第 1 节）；需核实开源用户能拿到的 6.8.x 补丁窗口，并给出安全补丁到期后的升级路径预案（如届时评估 6.12 LTS 或社区维护分支） | 编码阶段并行核实，结论回填第 1 节 |
 
 ## 15. 决议记录
 
@@ -350,3 +351,4 @@ function reset() { ... }
 - 2026-11-16：Glassmorphism 视觉规范经 Grayson 指定纳入 5.1 节。
 - 2026-11-16：外部评审（DeepSeek）6 阻塞项 + 重要/细节项全部纳入本 v0.2，逐条落点见第 8、10 节及正文标注。
 - 2026-11-16：待核项三项关闭（Grayson 提交结论）——Qt 6.8 LTS 锁定、OpenCppCoverage 选项 A（v1.0 沿用 + v1.1 评估迁移）、FireWater any: 规则核对一致。
+- 2026-11-18：第 1 轮全面评审（Grayson × DeepSeek，CODE-REVIEW.md）R-01/R-04/R-06~R-09/R-13/R-14/R-21/R-22/R-25/R-26/R-27 纳入本版：便携模式方案 A（Grayson 拍板）、波形数据模型四项修订、协议解析规则收窄、CLI 契约落地前提补齐、新增待核 #6（Qt 补丁范围）。

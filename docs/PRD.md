@@ -34,7 +34,7 @@
 
 * 目标用户：嵌入式 / 单片机开发者（自用 + GitHub/Gitee 社区）。
 
-* 参考项目：xTools、serial\_debug\_tool（Qt 路线精读对象，见《串口工具开源项目参考清单.md》）。
+* 参考项目：xTools、serial\_debug\_tool（Qt 路线精读对象，本地调研资料《串口工具开源项目参考清单》未随仓库发布）。
 
 ## 2. 需求分级
 
