@@ -15,7 +15,7 @@
 | 语言 | C++20 | `std::span`、`std::atomic` 等现代设施；与参考项目 serial_debug_tool 同代 |
 | UI 框架 | Qt 6.8 LTS（MSVC 2022 x64 工具链） | Widgets 优先于 QML；6.8 为 LTS，5 年维护窗口覆盖 v1.0 生命周期；6.12 LTS 为最后一个支持 Win10 的版本，列入 v2.0 + TODO-007 升级候选，不进 v1.0 基线 |
 | 构建 | CMake ≥ 3.21 | 前置依赖脚本化；MSVC x64 工具链 |
-| 脚本引擎 | QJSEngine | Qt 自带零第三方依赖，仅用于协议解析（PRD F-04 边界） |
+| 脚本引擎 | QJSEngine（**属 Qt6::Qml 模块**，打包计入 Qt6Qml.dll 数 MB） | Qt 自带零第三方依赖，仅用于协议解析（PRD F-04 边界） |
 | 波形渲染 | Qwt | 已核对：Qwt License v1.0 = LGPL + 子类化/静态链接例外（出处 https://qwt.sourceforge.io/qwtlicense.html ，核对日 2026-11-16）；动态链接，列入 THIRD-PARTY-NOTICES |
 | 单元测试 | Catch2 v3 | BSL-1.0 宽松许可；Qt 信号槽相关测试辅以 Qt Test（DoD 2.1 硬前置，随本 TS 定稿锁定） |
 | 覆盖率 | OpenCppCoverage 0.9.9.0（CLI） | 生成 Cobertura 报告入 CI；上游仓库 2026-09 已归档（只读），CLI 在 VS 2022 构建产物上可正常工作，v1.0 不迁移；v1.1 评估迁移至 Microsoft.CodeCoverage.Console（需确认 CI 的 VS 许可层级），归档风险登记于第 14 节待核。**构建/测试期工具，License 与产品无关、不随产品分发**；THIRD-PARTY-NOTICES 分"运行时依赖"与"构建期工具"两节登记 |
@@ -164,7 +164,9 @@ function parse(bytes) { ... }
 function reset() { ... }
 ```
 
-- 引擎侧保证：喂入顺序与串口到达顺序一致；错误即捕获、不崩溃；单次执行超时 100ms 强制中断（可配）。
+- 引擎侧保证：喂入顺序与串口到达顺序一致；错误即捕获、不崩溃；单次执行超时 100ms 强制中断（可配）。**超时中断的实现前提（R-14 spike，编码阶段验证）**：`QJSEngine::setInterrupted()` 仅在解释器安全点生效，且 Qt 未承诺跨线程调用安全——spike 必须实测 `while(true){}` 死循环能否被**解析线程内**的定时器中断；不可靠则降级方案二选一：独立进程执行脚本 + 超时 kill，或仅记录告警不强制中断（需 Grayson 确认取舍）。
+- **信任边界**（R-14）：QJSEngine 无安全沙箱，脚本以进程权限运行。明确约定：**脚本由用户本人提供，视为可信输入**；产品不提供、不鼓励加载来历不明的脚本（写入 README 安全说明）。
+- **依赖归属**（R-14）：QJSEngine 属 `Qt6::Qml` 模块而非 Core——技术栈与打包预算计入 `Qt6Qml.dll`（约数 MB），第 1 节技术栈表已同步。
 - **QJSEngine 实例归属**：解析线程持有唯一的执行实例；GUI 脚本编辑器的语法检查使用 **GUI 线程内独立的临时 QJSEngine 实例**（只做 checkSyntax，不复用、不共享任何对象），两实例零交叉，杜绝跨线程访问。
 - 编辑器提供错误行号定位与 2 个内置示例（固定 4 字节 float 帧 / ASCII CSV）。
 
@@ -242,7 +244,9 @@ function reset() { ... }
 
 - CSV：首行 `t_ms,ch0,ch1,...`，NaN 输出空字段。
 - **退出码边界**（评审 #9）：`0` 成功（**个别帧 parse_error 是统计项，计入 `stats.parse_errors`，不影响退出码 0**）；`2` 参数错误；`3` 串口错误（打不开 / 中途断开且重连失败 / **端口被 GUI 或其他程序占用**）；`4` 协议致命错误（**仅两类：脚本抛出未捕获异常、脚本执行超时被强制中断**）；`5` IO 错误（落盘失败）；`130` 用户中断（Ctrl+C，已收数据照常落盘后退出）。Agent 调用方判定：退出码 0 且 parse_errors 少量 → 可信数据；退出码 4 → 脚本问题，重试无效；退出码 3 → 环境/占用问题，可换端口重试。
-- 完整性：异常退出时已解析数据必须落盘（原子写：临时文件 + rename）。
+- **130 的实现约束**（R-13）：Windows 控制台 Ctrl+C 需 `SetConsoleCtrlHandler`——平台 API，实现收敛 `src/platform/` 并同步第 11 节符号表（已登记）；禁止在 core/cli 内联平台调用。
+- **JSON 流式写**（R-13）：samples 不全量驻留内存（10 分钟 × 8ch × 1kHz ≈ 30~60 MB 文本）；实现为**流式分段写**——`meta` 行 → 逐帧 sample 行（JSON Lines 语义，外层包装保持单文件合法 JSON：逐段写 `"samples": [` + 行间逗号 + `], "stats": {...}` 收尾）。CSV 天然流式。`--duration` 上限 3600 秒（防呆，超出即参数错误退出码 2）。
+- 完整性：异常退出时已解析数据必须落盘（**原子写语义修正，R-13**：临时文件写完 → `MoveFileEx(MOVEFILE_REPLACE_EXISTING)` 覆盖目标——原文"临时文件 + rename"在 Windows 上目标已存在时 `QFile::rename` 返回 false，重复执行 `--out data.csv` 必失败；`MoveFileEx` 调用收敛 `platform/`，符号表已登记）。
 - **端口占用提示**：CLI 打不开端口时错误信息注明"可能被 GUI 或其他程序占用"。
 
 ## 7. 会话配置
@@ -302,7 +306,8 @@ function reset() { ... }
 
 ## 11. 平台层边界与 Win32 扫描规则
 
-- **唯一豁免目录**：`src/platform/`（v1.0 已知内容：崩溃转储钩子；潜在：DWM 贴边适配）。
+- **唯一豁免目录**：`src/platform/`（v1.0 已知内容：崩溃转储钩子、CLI Ctrl+C 处理、原子替换写；潜在：DWM 贴边适配）。
+- **平台层符号表初始版**（新增/变更走维护机制，随实现同步扩充）：`SetUnhandledExceptionFilter`、`AddVectoredExceptionHandler`、`MiniDumpWriteDump`、`SetConsoleCtrlHandler`、`MoveFileEx`（原子替换语义）。
 - **CI 扫描规则**（对 `src/core`、`src/gui`、`src/cli`、`src/app` 生效；命中即红）：
   - 头文件包含：`<windows.h>`、`<windowsx.h>`、`<winsock2.h>`、`<process.h>`、`<io.h>`、`<direct.h>`、`<conio.h>`
   - **API 调用形态匹配**（评审细节项：不做裸字符串匹配，避免误伤注释/日志文本）：`::CreateFile(`、`CreateFileW(`、`CreateFileA(`、`RegOpenKey`、`::MessageBox(`、`MessageBoxW(`、`CoInitialize`、`WaitForSingleObject`、`::GetLastError(`；对 `//` 与 `/* */` 注释内容及字符串字面量先行剔除后再匹配（词法级处理，CI 侧 Python 预处理脚本 + 规则表实现）。
