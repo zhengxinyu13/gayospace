@@ -63,20 +63,45 @@ tests/
 
 **QSerialPort 线程亲和性时序**：`QSerialPort` 实例在 worker 线程内构造（worker 对象 moveToThread 到专职线程，在其 `started` 信号槽里 `new QSerialPort(this)`），读写、readyRead、参数设置全部发生在该线程；主线程只通过队列连接的信号槽下发"打开/关闭/改参数"命令。一个端口一个 worker，杜绝跨线程访问。
 
-### 3.2 SPSC 环形缓冲
+### 3.2 SPSC 环形缓冲（R-07 并发契约修订，2026-11-18）
 
 - 存储：预分配连续 `std::byte` 数组（默认 4 MB，评审可调），读写位置用 `std::atomic<uint64_t>` 累计序号（单调递增，取模寻址），无锁。
-- 传递单位：字节流（不按块分配内存，解析线程按序号区间直接读，**零拷贝**——读侧在写侧未越过头部的区间内可安全读）。
-- 满载策略：丢最旧（推进读序号）并累加丢弃字节计数（PRD 失效表"接收缓冲暴涨"行）。
+- 传递单位：字节流（不按块分配内存，解析线程按序号区间直接读，**零拷贝**——读侧只读写侧未覆盖的区间）。
+- **原子量与内存序（并发安全前提，原文"写侧推进读序号"与读侧安全读相矛盾，本条修正）**：
+  - `writePos`：写侧独占写（release）；
+  - `readPos`：读侧发布消费进度（release），读侧读它（acquire）；推进由双方 CAS 完成（谁推得远谁生效），单调不减；
+  - `readInFlight`：读侧正在处理的批次起始序号（读侧写，写侧 acquire）——**写侧覆盖判定的边界用它，而不是 readPos**；
+  - `droppedBytes`：丢弃字节计数（relaxed 累加，读侧汇总显示）。
+- **读侧协议**：批量取数前先写 `readInFlight = readPos` → 拷贝区间数据 → 处理完发布 `readPos = 批次末尾`（release）→ 清 `readInFlight = readPos`。批次区间永不被写侧触碰。
+- **满载策略（保留 PRD"丢最旧"，语义修正为安全实现）**：写侧可覆盖的最老边界 = `max(readPos, readInFlight)`；空间不足时写侧推进 `readPos` 跳过未读区间（跳过字节计入 `droppedBytes`）再覆盖。读侧在飞的区间永不被覆盖 → 无数据竞争、无 UB。
+- 批量读 API 返回语义：返回 `[begin, end)` 有效区间快照（拷贝语义，调用方处理与缓冲解耦）；区间为空立即返回，不阻塞。
+- `droppedBytes` 只计"写侧覆盖跳过的未读字节"；解析错误另计（`frames_bad` / `bytes_dropped_sync`），三者不相混。
 - 深度：8ch×1kHz JustFloat 帧长 36 B（8×4+4），36 kB/s 下 4 MB ≈ **111 秒**缓冲深度，远超渲染周期。
 
-### 3.3 ChannelStore（核心数据模型，阻塞项 #3 落实）
+### 3.3 ChannelStore（核心数据模型；R-09 内存预算修订，2026-11-18）
 
 - **通道数上限**：32 通道（v1.0 上限，编译期常量 `MAX_CHANNELS`；PRD F-05 要求 ≥8）。
-- **采样存储**：每通道一个环形 double 数组，容量按时间窗 600 秒 @1kHz（=600k 点/通道，8 通道 ≈ 38 MB 上界，可配）；时间戳由解析线程统一打（steady_clock）。
-- **并发模型**：**双缓冲 + seqlock**——解析线程写后台缓冲，写完原子递增序号（奇=写中）；GUI/CLI 读时取序号，读完复核，奇数或序号变化则重读（有界重试 2 次，仍未取到即跳过本渲染周期，下周期再取）。单写多读，无需互斥锁，读侧无阻塞。
+- **存储类型：`float`**（协议引擎输出本就是 float，原文 double 纯属浪费——内存直接减半）。
+- **内存预算表**（单份存储容量 = 通道数 × 窗长 × 4 B；**窗长可配**，默认 600 s @1kHz）：
+
+| 通道数 | 窗长 600 s（默认） | 窗长 60 s |
+| --- | --- | --- |
+| 8（典型） | 19.2 MB | 1.9 MB |
+| 16 | 38.4 MB | 3.8 MB |
+| 32（上限） | **76.8 MB（内存上界）** | 7.7 MB |
+
+  原文"8 通道 ≈ 38 MB"按 double 误算且未覆盖 32 通道上限（double 口径实为 153.6 MB）；定稿口径：float + 按当前配置通道数分配 + 窗长可调，上界 76.8 MB。环形缓冲**按当前配置的通道数分配，通道数变更时重建**（4.4 切换时序已覆盖）。
+- **并发模型（修订，废止"双缓冲"表述）**：每通道一份环形数组 + seqlock 序号发布（奇=写中）；解析线程**原地写入、不复制整块数据**（原文"写后台缓冲再切换"即变相双份内存，删）；GUI/CLI 读时取序号，读完复核，奇数或序号变化则重读（有界重试 2 次，仍未取到即跳过本渲染周期）。单写多读，无需互斥锁，读侧无阻塞。
 - **快照语义**：渲染每次取"最新完整状态"，按需回溯窗口（默认显示最近 10 秒，缩放可到全缓冲）；暂停模式下照常写入、仅渲染不推进（见 5.3）。
 - **协议差异的通道数语义**：JustFloat = 固定 N（用户配置）；FireWater = 按行字段数动态（以首行为基准，后续行字段数变化计错误）；Script = 按 `parse` 返回数组长度动态（上限 32，超限截断+计数）。通道数变化时 ChannelStore 重建列布局、波形页提示通道映射已重排。
+
+### 3.4 时间基准与采样率（R-06 新增，2026-11-18）
+
+- **问题**：USB 串口是批量到达的（典型 1~16 ms 一批），按到达时刻打点会让同批样本挤在同一时刻、下一批再跳变——x 轴抖动可达数十个百分点，"超调持续多久"这类 PID 关键读数直接失真。
+- **fs 配置**：采样率由用户设置（字节流不携带）：GUI 波形页配置项；CLI `--rate FS`（Hz）。JustFloat 与 FireWater 均适用。
+- **时间生成规则**：帧显示时间 = `t0 + frame_index / fs`（`frame_index` 为解析器产出的单调递增帧序号，绝不因到达批次重置）；`t0` 仅在两个时机校准为当前 `steady_clock`——①会话首帧；②串口空闲超时（≥100 ms 无新帧）后恢复。同一连续流内绝不重打点。
+- **fs 未设置时的语义**：波形 x 轴显示"样本序号"（frame_index），**不假装时间**；CLI JSON 输出 `t_index` 字段替代 `t_ms`。宁可显式缺省，不可静默失真。
+- CLI 契约联动见第 6 节（`--rate` 参数与 JSON meta `rate` 字段）。
 
 ## 4. 协议引擎
 
@@ -84,8 +109,9 @@ tests/
 
 ```cpp
 struct ParseFrame {
-    std::chrono::steady_clock::time_point t;
-    std::array<float, MAX_CHANNELS> ch;   // 仅前 ch_count 有效
+    std::chrono::steady_clock::time_point t;   // 到达校准时间戳（仅用于 t0 校准，见 3.4；显示时间不用它）
+    uint64_t frame_index;                      // 单调递增帧序号（显示时间 = t0 + index/fs，见 3.4）
+    std::array<float, MAX_CHANNELS> ch;        // 仅前 ch_count 有效
     uint8_t ch_count;
 };
 
@@ -190,11 +216,13 @@ function reset() { ... }
 ```
 用法（v1.0 三类场景，对应 PRD F-07；list-ports 经 2026-11-16 Grayson 批准加入）：
   gayospace-cli capture --port COM3 --baud 115200 --protocol justfloat|firewater|script [--script file.js]
-                    --channels N (--duration SEC | --samples COUNT) --out data.csv|data.json [--hex-echo]
+                    --channels N --rate FS (--duration SEC | --samples COUNT) --out data.csv|data.json [--hex-echo]
   gayospace-cli send --port COM3 --baud 115200 --data "01 02 03" [--hex] [--repeat N --interval MS]
   gayospace-cli list-ports    # 枚举可用串口（JSON 输出：设备名、描述、硬件 ID），供 Agent/脚本探测
   gayospace-cli --version
 ```
+
+- **`--rate FS`**（R-06）：采样率 Hz，capture 可选；缺省时 JSON 输出 `t_index`（样本序号）替代 `t_ms`（时间基准语义见 3.4——宁可显式缺省，不静默失真）。
 
 > 二进制定名 `gayospace-cli.exe`（2026-11-18 R-04）：与 GUI `GayoSpace.exe` 在 Windows 大小写不敏感文件系统上无法同目录共存，故 CLI 不得命名为 `gayospace.exe`。
 
@@ -204,11 +232,13 @@ function reset() { ... }
 ```json
 {
   "meta": {"tool": "gayospace", "version": "1.0.0", "port": "COM3", "baud": 115200,
-           "protocol": "justfloat", "channels": 8, "started_at": "2026-11-16T12:00:00+08:00"},
+           "protocol": "justfloat", "channels": 8, "rate": 1000, "started_at": "2026-11-16T12:00:00+08:00"},
   "samples": [{"t_ms": 0, "ch": [1.0, 2.0]}, {"t_ms": 1, "ch": [1.1, 2.0]}],
   "stats": {"rx_bytes": 320000, "dropped_bytes": 0, "parse_errors": 0}
 }
 ```
+
+- `t_ms` = round(frame_index × 1000 / rate)（R-06 时间基准语义，见 3.4）；`--rate` 缺省时该字段改名为 `t_index`（原始帧序号）。
 
 - CSV：首行 `t_ms,ch0,ch1,...`，NaN 输出空字段。
 - **退出码边界**（评审 #9）：`0` 成功（**个别帧 parse_error 是统计项，计入 `stats.parse_errors`，不影响退出码 0**）；`2` 参数错误；`3` 串口错误（打不开 / 中途断开且重连失败 / **端口被 GUI 或其他程序占用**）；`4` 协议致命错误（**仅两类：脚本抛出未捕获异常、脚本执行超时被强制中断**）；`5` IO 错误（落盘失败）；`130` 用户中断（Ctrl+C，已收数据照常落盘后退出）。Agent 调用方判定：退出码 0 且 parse_errors 少量 → 可信数据；退出码 4 → 脚本问题，重试无效；退出码 3 → 环境/占用问题，可换端口重试。
@@ -265,7 +295,7 @@ function reset() { ... }
 | 1 | 串口意外断开 | 8.3 重连策略（指数退避 ×10 上限 + 占用不重试） | 自动化（虚拟串口拔出模拟）+ 手工（物理拔线） |
 | 2 | 接收缓冲暴涨 | 3.2 环形缓冲丢最旧 + 丢弃计数 + 状态栏提示 | 自动化（灌数用例） |
 | 3 | 异常/残缺帧 | 4.1 重同步、4.2 宽容解析、4.3 脚本超时 100ms | 自动化（标准畸形数据集） |
-| 4 | 波形绘制过载 | 渲染侧抽稀：全部通道合计单帧绘制点数上限 20k，超出按步长抽稀并**状态栏提示"当前负载超出实时绘制能力，已降采样"**；数据采集不丢（降的是显示密度） | 自动化（超载灌数 + 断言 P99 与提示出现） |
+| 4 | 波形绘制过载 | 渲染侧降采样（**R-08 修订**）：绘制点数超出画布像素预算时按**每像素桶取 min/max 两点**——点数不变、尖峰不丢、包络视觉正确；**禁用步长抽稀**（会整帧跳过偶发尖峰，PID 调参要找的超调/振铃/毛刺恰是尖峰）。降采样只改变显示密度、不改变存储与落盘数据；超载时**状态栏提示"当前负载超出实时绘制能力，已降采样"**。验收断言：注入单点尖峰后缩放到全窗，该尖峰仍可见 | 自动化（超载灌数 + 断言 P99、提示出现、尖峰可见） |
 | 5 | 误发送 | 8.1 Hex 实时校验 + 定时发送状态机（双处红点标识 + 启动确认条 + 一键停止） | 自动化（校验规则）+ 手工（UI 状态机） |
 | 6 | 日志文件写入失败 | GUI 日志写失败：停写 + 内存缓冲保留（上限 10MB，超限丢最旧）+ 弹窗提示原因，恢复写路径后可续写；CLI 落盘失败 = 退出码 5 | 自动化（只读目录/配额盘模拟） |
 | 7 | 软件崩溃 | `platform/` 层注册 `SetUnhandledExceptionFilter` → MiniDumpWriteDump 写崩溃转储（含版本号、异常码）。**转储路径（R-01 方案 A）**：便携模式写 exe 同目录 `./crash/`；回落用户目录模式时写 `%LOCALAPPDATA%/GayoSpace/crash/`。**下次启动检测到新转储即提示"上次异常退出，转储文件位置：…"**（仅提示，不自动上传）。Win32 调用收敛在 `platform/`，扫描规则豁免区 | 手工（注入空指针验证转储与提示） |
