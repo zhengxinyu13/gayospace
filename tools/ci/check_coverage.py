@@ -1,32 +1,56 @@
 #!/usr/bin/env python3
-"""覆盖率门禁（R-02：DoD 2.3 阈值的自动化执行点，此前只查文件存在=假绿）。
+"""覆盖率门禁（R-02 + R-30：DoD 2.3 阈值的自动化执行点）。
 
-解析 OpenCppCoverage 产出的 Cobertura 报告，按 TS-SW 第 12 节目录阈值断言：
+R-30 事实：OpenCppCoverage 的 CoberturaExporter 按**模块**（exe/dll）生成 <package>，
+包名形如 gayospace-tests-core.exe，目录信息只在 <class filename> 属性里——
+按 package 断言 TS-SW 第 12 节的目录阈值永远不会生效。
+本脚本改为遍历 <class filename>，按 src/core/<子目录>/ 前缀聚合行数后断言：
+
   core/protocol、core/pipeline ≥ 80%；core/serial、core/session ≥ 60%；其余 core 子目录 ≥ 80%。
 
 判定规则：
-  - coverage.xml 缺失 / 不可解析 / 有效行数为 0 → 失败（空报告即假绿，--cover_children 缺失的典型症状）；
-  - 报告中出现的 core 包逐个断言阈值，不达标 → 失败并在输出中列出实测值；
-  - TS 第 12 节清单中尚未出现在报告里的目录（尚无代码）→ 显式提示跳过，不算失败。
+  - coverage.xml 缺失 / 不可解析 / core 范围内有效行数为 0 → 失败（空报告即假绿，
+    --cover_children 缺失的典型症状）；
+  - 各目录聚合覆盖率逐一断言，不达标 → 失败并在输出中列出实测值；
+  - TS 第 12 节清单中尚未出现代码的目录 → 显式提示跳过，不算失败。
 """
 from __future__ import annotations
 
+import re
 import sys
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
-# (目录关键字, 行覆盖率阈值) —— TS-SW 第 12 节锁定口径
+# (目录名, 行覆盖率阈值) —— TS-SW 第 12 节锁定口径；key 匹配 src/core/<key>/ 前缀
 THRESHOLDS: list[tuple[str, float]] = [
-    ("core/protocol", 0.80),
-    ("core/pipeline", 0.80),
-    ("core/serial", 0.60),
-    ("core/session", 0.60),
+    ("protocol", 0.80),
+    ("pipeline", 0.80),
+    ("serial", 0.60),
+    ("session", 0.60),
 ]
 DEFAULT_THRESHOLD = 0.80  # 其余 core 子目录（applogic 等）
+RE_CORE_SUBDIR = re.compile(r"src/core/([^/]+)/")
 
 
 def norm(name: str) -> str:
     return name.replace("\\", "/")
+
+
+def aggregate_by_dir(root: ET.Element) -> dict[str, tuple[int, int]]:
+    """遍历 <class filename>，按 src/core/<子目录>/ 聚合 (有效行数, 命中行数)。"""
+    stats: dict[str, list[int]] = {}
+    for cls in root.iter("class"):
+        filename = norm(cls.get("filename", ""))
+        m = RE_CORE_SUBDIR.search(filename)
+        if not m:
+            continue  # 非 core 范围（gui/cli 等）不在覆盖率分母内
+        subdir = m.group(1)
+        bucket = stats.setdefault(subdir, [0, 0])
+        for line in cls.iter("line"):
+            bucket[0] += 1
+            if int(line.get("hits", "0")) > 0:
+                bucket[1] += 1
+    return {d: (v[0], v[1]) for d, v in stats.items()}
 
 
 def main() -> int:
@@ -40,48 +64,32 @@ def main() -> int:
         print(f"覆盖率门禁失败：coverage.xml 解析失败：{e}")
         return 1
 
-    packages = {p.get("name", ""): p for p in root.iter("package")}
-    print(f"coverage.xml 汇总 line-rate = {root.get('line-rate')}")
-
-    # 有效行数按包内 <line> 元素计数（Cobertura 的 lines-valid 在包级不可靠）
-    total_lines = sum(len(list(pkg.iter("line"))) for pkg in packages.values())
-    if total_lines == 0:
+    stats = aggregate_by_dir(root)
+    total_valid = sum(v for v, _ in stats.values())
+    if total_valid == 0:
         print(
-            "覆盖率门禁失败：报告有效行数为 0——"
+            "覆盖率门禁失败：src/core 范围内有效行数为 0——"
             "典型症状是 OpenCppCoverage 缺 --cover_children（只统计到 ctest.exe 自身）或测试未命中 core"
         )
         return 1
 
     failures: list[str] = []
-    covered_pkgs = 0
-    for pkg_name, pkg in sorted(packages.items()):
-        valid = len(list(pkg.iter("line")))
-        if valid == 0:
-            continue
-        covered_pkgs += 1
-        rate = float(pkg.get("line-rate", "0"))
-        thr = DEFAULT_THRESHOLD
-        for key, t in THRESHOLDS:
-            if key in norm(pkg_name):
-                thr = t
-                break
+    for subdir, (valid, covered) in sorted(stats.items()):
+        rate = covered / valid
+        thr = dict(THRESHOLDS).get(subdir, DEFAULT_THRESHOLD)
         status = "OK" if rate >= thr else "FAIL"
-        print(f"  {pkg_name}: line-rate={rate:.4f}（阈值 {thr:.2f}，有效行 {valid}）{status}")
+        print(f"  src/core/{subdir}: 覆盖率={rate:.4f}（阈值 {thr:.2f}，有效行 {valid}）{status}")
         if rate < thr:
-            failures.append(f"{pkg_name}({rate:.2%}<{thr:.0%})")
+            failures.append(f"core/{subdir}({rate:.2%}<{thr:.0%})")
 
-    missing = [
-        key
-        for key, _ in THRESHOLDS
-        if not any(key in norm(n) for n in packages)
-    ]
+    missing = [key for key, _ in THRESHOLDS if key not in stats]
     if missing:
-        print(f"  报告中未出现（目录尚无代码，显式跳过不算失败）：{', '.join(missing)}")
+        print(f"  报告中未出现代码（目录尚无实现，显式跳过不算失败）：{', '.join(missing)}")
 
     if failures:
         print("覆盖率门禁不通过：" + ", ".join(failures))
         return 1
-    print(f"覆盖率门禁通过（{covered_pkgs} 个代码包达标）。")
+    print(f"覆盖率门禁通过（{len(stats)} 个 core 目录达标）。")
     return 0
 
 
