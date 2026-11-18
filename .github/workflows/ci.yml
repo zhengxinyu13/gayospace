@@ -51,15 +51,12 @@ jobs:
 
       - name: Unit tests with coverage (Cobertura + HTML)
         shell: pwsh
+        # R-02：--cover_children 不加则只统计 ctest.exe 自身，报告为假绿。
+        # R-29：命令写成单行——反引号续行后跟行内注释会使续行失效（PowerShell 把
+        # 注释前的空格当作被转义对象），多行续行+注释的组合在解析阶段必炸。
         run: |
           $env:PATH = "$env:PATH;C:\Program Files\OpenCppCoverage"
-          OpenCppCoverage.exe `
-            --quiet `
-            --cover_children `   # R-02：不加此开关只统计 ctest.exe 自身，报告为假绿
-            --sources "*\src\core\*" `
-            --export_type cobertura:coverage.xml `
-            --export_type html:coverage-html `
-            -- ctest --preset ci
+          OpenCppCoverage.exe --quiet --cover_children --sources "*\src\core\*" --export_type cobertura:coverage.xml --export_type html:coverage-html -- ctest --preset ci
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           if (-not (Test-Path coverage.xml)) { Write-Error "coverage.xml 未生成"; exit 1 }
 
@@ -78,11 +75,11 @@ jobs:
           name: coverage-report-html
           path: coverage-html
 
+      - name: Scanner self-tests (R-38：先证明工具没坏，失败即跳过后续扫描)
+        run: python tests/tools/test_check_win32_api.py
+
       - name: Win32 platform API scan (DoD 2.3)
         run: python tools/ci/check_win32_api.py
-
-      - name: Scanner self-tests (R-03：扫描器缺陷 fixture 固化，先于扫描执行)
-        run: python tests/tools/test_check_win32_api.py
 
       - name: UI compliance string check (AGENTS.md 第三节)
         run: python tools/ci/check_ui_string.py
