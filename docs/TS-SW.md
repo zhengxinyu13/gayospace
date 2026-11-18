@@ -222,7 +222,7 @@ function reset() { ... }
 ```
 用法（v1.0 三类场景，对应 PRD F-07；list-ports 经 2026-11-16 Grayson 批准加入）：
   gayospace-cli capture --port COM3 --baud 115200 --protocol justfloat|firewater|script [--script file.js]
-                    --channels N --rate FS (--duration SEC | --samples COUNT) --out data.csv|data.json [--hex-echo]
+                    --channels N [--rate FS] (--duration SEC | --samples COUNT) --out data.csv|data.json [--hex-echo]
   gayospace-cli send --port COM3 --baud 115200 --data "01 02 03" [--hex] [--repeat N --interval MS]
   gayospace-cli list-ports    # 枚举可用串口（JSON 输出：设备名、描述、硬件 ID），供 Agent/脚本探测
   gayospace-cli --version
@@ -246,7 +246,7 @@ function reset() { ... }
 
 - `t_ms` = round(frame_index × 1000 / rate)（R-06 时间基准语义，见 3.4）；`--rate` 缺省时该字段改名为 `t_index`（原始帧序号）。
 
-- CSV：首行 `t_ms,ch0,ch1,...`，NaN 输出空字段。
+- CSV：首行 `t_ms,ch0,ch1,...`；`--rate` 缺省时首列改名 `t_index`（与 JSON meta 同规则，R-40 统一口径），NaN 输出空字段。
 - **退出码边界**（评审 #9）：`0` 成功（**个别帧 parse_error 是统计项，计入 `stats.parse_errors`，不影响退出码 0**）；`2` 参数错误；`3` 串口错误（打不开 / 中途断开且重连失败 / **端口被 GUI 或其他程序占用**）；`4` 协议致命错误（**仅两类：脚本抛出未捕获异常、脚本执行超时被强制中断**）；`5` IO 错误（落盘失败）；`130` 用户中断（Ctrl+C，已收数据照常落盘后退出）。Agent 调用方判定：退出码 0 且 parse_errors 少量 → 可信数据；退出码 4 → 脚本问题，重试无效；退出码 3 → 环境/占用问题，可换端口重试。
 - **130 的实现约束**（R-13）：Windows 控制台 Ctrl+C 需 `SetConsoleCtrlHandler`——平台 API，实现收敛 `src/platform/` 并同步第 11 节符号表（已登记）；禁止在 core/cli 内联平台调用。
 - **JSON 流式写**（R-13）：samples 不全量驻留内存（10 分钟 × 8ch × 1kHz ≈ 30~60 MB 文本）；实现为**流式分段写**——`meta` 行 → 逐帧 sample 行（JSON Lines 语义，外层包装保持单文件合法 JSON：逐段写 `"samples": [` + 行间逗号 + `], "stats": {...}` 收尾）。CSV 天然流式。`--duration` 上限 3600 秒（防呆，超出即参数错误退出码 2）。
@@ -351,4 +351,4 @@ function reset() { ... }
 - 2026-11-16：Glassmorphism 视觉规范经 Grayson 指定纳入 5.1 节。
 - 2026-11-16：外部评审（DeepSeek）6 阻塞项 + 重要/细节项全部纳入本 v0.2，逐条落点见第 8、10 节及正文标注。
 - 2026-11-16：待核项三项关闭（Grayson 提交结论）——Qt 6.8 LTS 锁定、OpenCppCoverage 选项 A（v1.0 沿用 + v1.1 评估迁移）、FireWater any: 规则核对一致。
-- 2026-11-18：第 1 轮全面评审（Grayson × DeepSeek，CODE-REVIEW.md）R-01/R-04/R-06~R-09/R-13/R-14/R-21/R-22/R-25/R-26/R-27 纳入本版：便携模式方案 A（Grayson 拍板）、波形数据模型四项修订、协议解析规则收窄、CLI 契约落地前提补齐、新增待核 #6（Qt 补丁范围）。
+- 2026-11-18：第 1 轮全面评审（Grayson × DeepSeek，本地评审记录，未随仓库发布）R-01/R-04/R-06~R-09/R-13/R-14/R-21/R-22/R-25/R-26/R-27 纳入本版：便携模式方案 A（Grayson 拍板）、波形数据模型四项修订、协议解析规则收窄、CLI 契约落地前提补齐、新增待核 #6（Qt 补丁范围）。
