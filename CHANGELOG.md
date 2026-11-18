@@ -5,6 +5,16 @@
 
 ## [未发布]
 
+### 第 2 轮评审修复与合入（本地评审记录，未随仓库发布；批准人：Grayson，日期 2026-11-18）
+
+- 2026-11-18 【修正】R-29 CI 覆盖率步骤续行+行内注释语法错误（pwsh 解析 4 errors，job 必红）→ 命令改单行；R-38 扫描器自测先于扫描执行（2900f96）。
+- 2026-11-18 【修正】R-30 覆盖率门禁改按 class filename 目录聚合（OpenCppCoverage 的 package=模块名，原口径永不生效）；新增自测 7/7（20f13e3）。
+- 2026-11-18 【补强】R-31 扫描规则补 TS §11 五符号 + LoadLibrary/ShellExecute/Sleep/#pragma comment，自测扩至 27 项（5992416）。
+- 2026-11-18 【修正】R-12 Catch2 依赖锁改 URL tarball + SHA256（GIT_SHALLOW 与 commit hash 组合被 CMake 禁止，全新 configure 必挂）；R-35 删死文件 src/CMakeLists.txt；R-36 版本注释口径对齐 TS（d562153）。
+- 2026-11-18 【修正】R-39 悬空引用改"本地评审记录"；R-40 CLI usage --rate 方括号与 CSV t_index 改名规则统一（1756f87）。
+- 2026-11-18 【合并】三分支 docs/review-r1-sync → fix/review-r1-ci-gates → fix/review-r1-build --no-ff 合入 main（0 冲突，实测）；chore/local-dev-env 远端分支删除。
+- 2026-11-18 【验证】本机仓库外全新目录构建：132 步、/utf-8 /W4 /permissive- /WX 下 0 warning、ctest 3/3、`gayospace-cli --version` = `build clean-4492fd3`；main CI 全绿（run https://github.com/zhengxinyu13/gayospace/actions/runs/44284960092）。
+
 ### 第 1 轮全面评审修订（R-01～R-28，本地评审记录，未随仓库发布；批准人：Grayson，日期 2026-11-18）
 
 - 2026-11-18 【变更】R-01 便携路径采用方案 A（Grayson 拍板）：默认便携模式，配置/转储写解压目录内，不可写回落 %LOCALAPPDATA% 并提示（影响：PRD 5 节、TS-SW 7/10 节、DoD 4.3 节；无已发布设备）。
