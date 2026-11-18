@@ -9,6 +9,8 @@ target_link_libraries(gayospace-tests-core PRIVATE gayospace_core Catch2::Catch2
 target_compile_definitions(gayospace-tests-core PRIVATE GAYO_EXPECTED_VERSION="${PROJECT_VERSION}")
 catch_discover_tests(gayospace-tests-core)
 
+# Qt Test 冒烟需要 Widgets/完整 Qt（core-only 探针模式跳过，R-15）
+if(NOT GAYOSPACE_CORE_ONLY)
 add_executable(gayospace-tests-qt
     tst_smoke_qt.cpp
 )
@@ -16,3 +18,4 @@ target_link_libraries(gayospace-tests-qt PRIVATE gayospace_core Qt6::Core Qt6::T
 add_test(NAME gayospace-tests-qt COMMAND gayospace-tests-qt)
 # CI 无显示环境：Qt 测试统一离屏平台
 set_tests_properties(gayospace-tests-qt PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+endif()
