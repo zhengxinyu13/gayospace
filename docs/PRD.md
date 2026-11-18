@@ -115,7 +115,7 @@
 | 技术栈基线        | C++（标准版本在 TS 定）+ Qt6 + CMake，开源依赖仅限宽松许可（MIT/Apache/BSD 等）及 LGPL 系列（**仅动态链接**；Qt LGPLv3、Qwt LGPL）。LGPL 合规义务：随分发附许可文本、保证用户可替换所链接的动态库（2026-11-18 R-04 口径修订） |
 | License      | MIT（本项目代码），发布时附 LICENSE 与第三方依赖清单                                                                                                                                                   |
 | UI 合规        | 所有含 UI 的代码必须包含字符串 `This software was written by Grayson Zheng.`                                                                                                                    |
-| 发布形态         | GitHub Releases 提供 x64 便携版 zip（v1.0 不做安装包，NSIS 见 TODO-009）；版本号 SemVer，tag 格式 `vX.Y.Z`（单款型无 SKU 后缀）                                                                                                         |
+| 发布形态         | GitHub Releases 提供 x64 便携版 zip（v1.0 不做安装包，NSIS 见 TODO-009）；**默认便携模式**（2026-11-18 R-01 方案 A）：配置与崩溃转储写解压目录内，目录不可写时回落用户目录并提示；版本号 SemVer，tag 格式 `vX.Y.Z`（单款型无 SKU 后缀） |
 | 文档           | README（安装 / 快速上手 / 协议说明 / 脚本示例）、CHANGELOG                                                                                                                                          |
 
 ## 6. 验收标准（摘要，完整验收方式在 DoD 定）

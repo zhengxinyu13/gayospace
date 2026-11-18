@@ -217,7 +217,9 @@ function reset() { ... }
 
 ## 7. 会话配置
 
-- 位置：`QStandardPaths::AppConfigLocation`（Windows 下 `%APPDATA%\GayoSpace\`）JSON 文件。
+- **路径策略（便携模式，R-01 方案 A，2026-11-18 Grayson 拍板）**：v1.0 默认便携模式——会话配置存 **exe 同目录 `./config/`**，崩溃转储存 `./crash/`；启动时对 exe 目录做一次写探测（创建并删除临时文件），失败则回落 `%LOCALAPPDATA%/GayoSpace/` 并**状态栏提示"已切换到用户目录模式"**。注册表零写入、系统目录零写入（对应 DoD 4.3）。
+- **回落路径的实现口径**：用 `QStandardPaths::AppConfigLocation`（Qt 6 实测语义：Windows 下为 `C:/Users/<USER>/AppData/Local/<APPNAME>`，**Local 而非 Roaming**——本节原文 `%APPDATA%` 为事实性错误，2026-11-18 修正）。
+- **GUI 入口必须设置** `organizationName` / `applicationName` / `applicationVersion`（`main()` 开头），保证回落路径可预测；配一条单测打印实际路径断言前缀。
 - 内容：串口参数、协议选择与通道数、玻璃浓度、性能模式开关、波形通道开关与颜色、窗口布局、发送历史（上限 20 条）、CLI 默认参数。
 - 损坏容错：解析失败即备份坏文件（`.bad` 后缀）+ 回落默认值 + 状态栏提示（对应 DoD 2.2 会话配置用例）。
 
@@ -266,7 +268,7 @@ function reset() { ... }
 | 4 | 波形绘制过载 | 渲染侧抽稀：全部通道合计单帧绘制点数上限 20k，超出按步长抽稀并**状态栏提示"当前负载超出实时绘制能力，已降采样"**；数据采集不丢（降的是显示密度） | 自动化（超载灌数 + 断言 P99 与提示出现） |
 | 5 | 误发送 | 8.1 Hex 实时校验 + 定时发送状态机（双处红点标识 + 启动确认条 + 一键停止） | 自动化（校验规则）+ 手工（UI 状态机） |
 | 6 | 日志文件写入失败 | GUI 日志写失败：停写 + 内存缓冲保留（上限 10MB，超限丢最旧）+ 弹窗提示原因，恢复写路径后可续写；CLI 落盘失败 = 退出码 5 | 自动化（只读目录/配额盘模拟） |
-| 7 | 软件崩溃 | `platform/` 层注册 `SetUnhandledExceptionFilter` → MiniDumpWriteDump 写 `%APPDATA%\GayoSpace\crash\` 转储（含版本号、异常码）；**下次启动检测到新转储即提示"上次异常退出，转储文件位置：…"**（仅提示，不自动上传）。Win32 调用收敛在 `platform/`，扫描规则豁免区 | 手工（注入空指针验证转储与提示） |
+| 7 | 软件崩溃 | `platform/` 层注册 `SetUnhandledExceptionFilter` → MiniDumpWriteDump 写崩溃转储（含版本号、异常码）。**转储路径（R-01 方案 A）**：便携模式写 exe 同目录 `./crash/`；回落用户目录模式时写 `%LOCALAPPDATA%/GayoSpace/crash/`。**下次启动检测到新转储即提示"上次异常退出，转储文件位置：…"**（仅提示，不自动上传）。Win32 调用收敛在 `platform/`，扫描规则豁免区 | 手工（注入空指针验证转储与提示） |
 
 ## 11. 平台层边界与 Win32 扫描规则
 
