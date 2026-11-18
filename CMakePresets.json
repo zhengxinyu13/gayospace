@@ -21,6 +21,7 @@
             "name": "dev",
             "inherits": "base",
             "cacheVariables": {
+                "CMAKE_PREFIX_PATH": "$env{QT_ROOT_DIR}",
                 "GAYOSPACE_BUILD_ID": "local-dev"
             }
         }
