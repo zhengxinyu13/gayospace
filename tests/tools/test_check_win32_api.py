@@ -61,6 +61,37 @@ sample = "a/*x\ny*/b//z\nw = \"s\\\"t\";\n"
 check("剥离输出与输入逐字符等长", len(cw.strip_lexical(sample)) == len(sample))
 check("剥离输出换行数与输入一致", cw.strip_lexical(sample).count("\n") == sample.count("\n"))
 
+# ---- R-31：平台层符号表登记符号 + 高危符号逐一命中 ----
+R31_SYMBOLS = [
+    "SetUnhandledExceptionFilter(filter)",
+    "AddVectoredExceptionHandler(1, cb)",
+    "MiniDumpWriteDump(p, a, b, c, d, e, f)",
+    "SetConsoleCtrlHandler(h, TRUE)",
+    "MoveFileEx(tmp, dst, flags)",
+    "LoadLibraryW(L\"x.dll\")",
+    "ShellExecuteW(nullptr, L\"open\", L\"x\")",
+    "Sleep(1000)",
+]
+for sym in R31_SYMBOLS:
+    name = sym.split("(")[0]
+    # 规则名是基名（LoadLibrary 覆盖 LoadLibraryW/A/Ex），断言按基名匹配
+    import re as _re
+    base = _re.sub(r"(W|A|Ex)$", "", name)
+    hits = cw.scan_text(sym + "\n")
+    check(f"R-31 符号命中：{name}", any(h[0] == 1 and base in h[2] for h in hits), f"实际 {hits}")
+    hits_comment = cw.scan_text("// " + sym + "\n")
+    check(f"R-31 符号注释内不误报：{name}", hits_comment == [], f"实际 {hits_comment}")
+
+# R-31：std::this_thread::sleep_for / QThread::msleep 等合法调用不误报
+hits = cw.scan_text("std::this_thread::sleep_for(100ms); QThread::msleep(1);\n")
+check("sleep_for/msleep 不误报 Sleep 规则", hits == [], f"实际 {hits}")
+
+# R-31：#pragma comment(lib, "user32.lib") 命中；普通 pragma 不误报
+hits = cw.scan_text('#pragma comment(lib, "user32.lib")\n')
+check("#pragma comment(lib,...) 命中", len(hits) == 1 and hits[0][1] == "pragma", f"实际 {hits}")
+hits = cw.scan_text('#pragma once\n#pragma pack(push, 1)\n')
+check("普通 pragma 不误报", hits == [], f"实际 {hits}")
+
 failed = [r for r in _results if not r[1]]
 for name, ok, detail in _results:
     print(("PASS " if ok else "FAIL ") + name + ("" if ok else f"  <- {detail}"))

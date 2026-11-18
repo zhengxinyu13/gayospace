@@ -37,7 +37,19 @@ CALL_PATTERNS = [
     ("CoInitialize", re.compile(r"\bCoInitialize(?:Ex)?\s*\(")),
     ("WaitForSingleObject", re.compile(r"\bWaitForSingleObject(?:Ex)?\s*\(")),
     ("GetLastError", re.compile(r"(?:::)?\bGetLastError\s*\(")),
+    # R-31：平台层符号表（TS-SW 第 11 节）登记的五个符号 + 评审补的三个高危符号。
+    # core/gui/cli/app 命中即红——这些调用只允许出现在 src/platform/
+    ("SetUnhandledExceptionFilter", re.compile(r"\bSetUnhandledExceptionFilter\s*\(")),
+    ("AddVectoredExceptionHandler", re.compile(r"\bAddVectoredExceptionHandler\s*\(")),
+    ("MiniDumpWriteDump", re.compile(r"\bMiniDumpWriteDump\s*\(")),
+    ("SetConsoleCtrlHandler", re.compile(r"\bSetConsoleCtrlHandler\s*\(")),
+    ("MoveFileEx", re.compile(r"\bMoveFile(?:Ex)?\s*\(")),
+    ("LoadLibrary", re.compile(r"\bLoadLibrary(?:W|A|Ex)?\s*\(")),
+    ("ShellExecute", re.compile(r"\bShellExecute(?:W|A|Ex)?\s*\(")),
+    ("Sleep", re.compile(r"(?<![.\w])Sleep\s*\(")),
 ]
+# R-31：#pragma comment(lib, ...) 等链接期平台依赖（隐式引入平台库即说明用了平台符号）
+RE_PRAGMA_COMMENT = re.compile(r"#\s*pragma\s+comment\s*\(\s*\w+", re.IGNORECASE)
 
 RE_RAW_STRING_OPEN = re.compile(r'R"([^ ()\\\t\v\f\r\n]*)\(')
 
@@ -128,6 +140,8 @@ def scan_text(text: str) -> list[tuple[int, str, str]]:
     for lineno, line in enumerate(cleaned.splitlines(), start=1):
         if RE_FORBIDDEN_INCLUDE.search(line):
             hits.append((lineno, "include", "禁用的 Win32 头文件包含"))
+        if RE_PRAGMA_COMMENT.search(line):
+            hits.append((lineno, "pragma", "禁用的 #pragma comment 平台库链接"))
         for name, pattern in CALL_PATTERNS:
             if pattern.search(line):
                 hits.append((lineno, "call", f"禁用的平台 API 调用形态（{name}）"))
