@@ -4,7 +4,7 @@
 
 > An open-source serial debugging tool for embedded engineers: real-time multi-channel waveforms, JustFloat/FireWater protocols, custom JS protocol parsing, and a CLI for automation. Built by an embedded engineer, for embedded engineers.
 
-![Status](https://img.shields.io/badge/status-in%20design-blue) ![License](https://img.shields.io/badge/license-MIT-green) ![Platform](https://img.shields.io/badge/platform-Windows%2010%2F11-lightgrey)
+![Status](https://img.shields.io/badge/status-scaffold%20v0.1-blue) ![License](https://img.shields.io/badge/license-MIT-green) ![Platform](https://img.shields.io/badge/platform-Windows%2010%2F11-lightgrey)
 
 ## About
 
@@ -24,11 +24,39 @@ See [docs/PRD.md](docs/PRD.md) for the full product requirements, including the 
 
 ## Status
 
-In design phase — PRD under review. Coding starts after the PRD, DoD and technical specification are finalized.
+v0.1 scaffold: build system, test framework (Catch2 v3 + Qt Test), CI and static gates are in place; PRD / DoD / TS-SW finalized. Business coding starts next.
 
 ## Build
 
-Toolchain (planned): C++ / Qt6 / CMake on Windows. Build instructions will be added once the project scaffolds.
+### Prerequisites
+
+- Windows 10/11 x64
+- Visual Studio 2022 Build Tools (C++ workload, MSVC 2022 x64) — [download](https://visualstudio.microsoft.com/downloads/#build-tools-for-visual-studio-2022)
+- CMake >= 3.21, Ninja
+- Qt 6.8 LTS (MSVC 2022 x64) — via the [official installer](https://www.qt.io/download-qt-installer) or `aqt`:
+
+```powershell
+pip install aqtinstall==3.3.0
+python -m aqt install-qt windows desktop 6.8 win64_msvc2022_64 --outputdir C:\Qt
+```
+
+### Configure & build
+
+The `dev` preset reads the Qt install path from the `QT_ROOT_DIR` environment variable:
+
+```powershell
+$env:QT_ROOT_DIR = "C:\Qt\6.8.3\msvc2022_64"   # adjust to your Qt install
+cmake --preset dev
+cmake --build --preset dev
+ctest --preset dev
+```
+
+Artifacts: `GayoSpace.exe` (GUI) and `gayospace-cli.exe` (CLI) under the build directory. `--version` prints the injected SemVer and build id.
+
+Notes:
+- First configure fetches Catch2 (pinned to a commit SHA) from GitHub — network required once.
+- CI builds with the `ci` preset on `windows-latest`; see [.github/workflows/ci.yml](.github/workflows/ci.yml).
+- macOS/Linux: the core layer is kept platform-free and compile-tested on Linux in CI; full port is on the roadmap (TODO-007).
 
 ## License
 
@@ -54,11 +82,39 @@ GayoSpace 是一款带实时波形绘制的串口调试工具，使用 C++ / Qt6
 
 ## 当前状态
 
-设计阶段——PRD 评审中，PRD / DoD / 技术方案定稿后开始编码。
+v0.1 脚手架阶段：构建系统、测试框架（Catch2 v3 + Qt Test）、CI 与静态门禁已就位；PRD / DoD / TS-SW 已定稿，业务编码即将开始。
 
 ## 构建
 
-工具链（规划）：Windows 下 C++ / Qt6 / CMake。工程搭建后补充构建说明。
+### 环境准备
+
+- Windows 10/11 x64
+- Visual Studio 2022 Build Tools（C++ 工作负载，MSVC 2022 x64）——[下载](https://visualstudio.microsoft.com/zh-cn/downloads/#build-tools-for-visual-studio-2022)
+- CMake >= 3.21、Ninja
+- Qt 6.8 LTS（MSVC 2022 x64）——官方安装器或 `aqt`：
+
+```powershell
+pip install aqtinstall==3.3.0
+python -m aqt install-qt windows desktop 6.8 win64_msvc2022_64 --outputdir C:\Qt
+```
+
+### 配置与构建
+
+`dev` preset 从环境变量 `QT_ROOT_DIR` 读取 Qt 安装路径：
+
+```powershell
+$env:QT_ROOT_DIR = "C:\Qt\6.8.3\msvc2022_64"   # 按实际安装路径调整
+cmake --preset dev
+cmake --build --preset dev
+ctest --preset dev
+```
+
+产物：构建目录下的 `GayoSpace.exe`（GUI）与 `gayospace-cli.exe`（CLI）。`--version` 可读出编译期注入的 SemVer 版本与构建 ID。
+
+说明：
+- 首次 configure 会从 GitHub 拉取 Catch2（已锁定 commit SHA），需要联网一次。
+- CI 在 `windows-latest` 上以 `ci` preset 构建，见 [.github/workflows/ci.yml](.github/workflows/ci.yml)。
+- macOS/Linux：core 层保持无平台依赖并在 Linux CI 上编译验证；完整移植在路线图中（TODO-007）。
 
 ## 许可证
 

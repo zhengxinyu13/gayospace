@@ -38,7 +38,7 @@ jobs:
           arch: x64
 
       - name: Configure
-        run: cmake --preset ci
+        run: cmake --preset ci -DGAYOSPACE_BUILD_ID="${{ github.sha }}"   # R-11：构建可追溯，--version 可读出精确提交
 
       - name: Build
         run: cmake --build --preset ci

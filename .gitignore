@@ -23,6 +23,9 @@ coverage.xml
 CMakeLists.txt.user*
 *.autosave
 
+# 个人本机 preset（R-11：绝对路径不入库）
+CMakeUserPresets.json
+
 # OS
 Thumbs.db
 .DS_Store
