@@ -31,6 +31,7 @@ jobs:
           version: ${{ steps.qtver.outputs.version }}
           arch: win64_msvc2022_64
           cache: true
+          modules: qtserialport   # core 链 Qt6::SerialPort（serial 层首批引入），缺模块 configure 必挂
 
       - name: Activate MSVC 2022 environment
         uses: ilammy/msvc-dev-cmd@v1
@@ -98,10 +99,10 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Install Qt 6 Core/Test (distro) + Ninja
+      - name: Install Qt 6 Core/SerialPort/Test (distro) + Ninja
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends qt6-base-dev ninja-build
+          sudo apt-get install -y --no-install-recommends qt6-base-dev qt6-serialport-dev ninja-build
 
       - name: Configure (core-only probe)
         run: cmake -S . -B out/build/coreprobe -G Ninja -DGAYOSPACE_CORE_ONLY=ON -DCMAKE_BUILD_TYPE=RelWithDebInfo
