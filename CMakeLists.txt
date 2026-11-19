@@ -24,9 +24,9 @@ option(GAYOSPACE_CORE_ONLY "Build only the core layer and its unit tests (cross-
 
 if(GAYOSPACE_CORE_ONLY)
     # 探针只用发行版 Qt（无 Widgets、版本可低于 6.8）；core 对 6.8 的 API 一致性由 Windows job 兜底
-    find_package(Qt6 6.4 REQUIRED COMPONENTS Core Test)
+    find_package(Qt6 6.4 REQUIRED COMPONENTS Core Test SerialPort)
 else()
-    find_package(Qt6 6.8 REQUIRED COMPONENTS Core Widgets Test)
+    find_package(Qt6 6.8 REQUIRED COMPONENTS Core Widgets Test SerialPort)
 endif()
 qt_standard_project_setup()
 
