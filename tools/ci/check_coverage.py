@@ -7,6 +7,8 @@ R-30 事实：OpenCppCoverage 的 CoberturaExporter 按**模块**（exe/dll）�
 本脚本改为遍历 <class filename>，按 src/core/<子目录>/ 前缀聚合行数后断言：
 
   core/protocol、core/pipeline ≥ 80%；core/serial、core/session ≥ 60%；其余 core 子目录 ≥ 80%。
+R-41：同一源文件被多个测试模块链入时会重复出现，按 (文件, 行号) 去重取 max 命中；
+R-43：src/core/ 根级源文件（无子目录层）归入 "core" 桶，阈值取默认。
 
 判定规则：
   - coverage.xml 缺失 / 不可解析 / core 范围内有效行数为 0 → 失败（空报告即假绿，
@@ -28,28 +30,47 @@ THRESHOLDS: list[tuple[str, float]] = [
     ("serial", 0.60),
     ("session", 0.60),
 ]
-DEFAULT_THRESHOLD = 0.80  # 其余 core 子目录（applogic 等）
-RE_CORE_SUBDIR = re.compile(r"src/core/([^/]+)/")
+DEFAULT_THRESHOLD = 0.80  # 其余 core 子目录（applogic 及根级 core 桶等）
+# R-43：src/core/ 下允许根级源文件（src/core/Common.cpp），归入 "core" 桶
+RE_CORE_PATH = re.compile(r"src/core/(.+)$")
 
 
 def norm(name: str) -> str:
     return name.replace("\\", "/")
 
 
+def _subdir_of(filename: str) -> str | None:
+    """src/core/<子目录>/xxx.cpp → 子目录名；src/core/xxx.cpp（根级）→ "core"。非 core → None。"""
+    m = RE_CORE_PATH.search(filename)
+    if not m:
+        return None
+    rest = m.group(1)
+    return rest.split("/", 1)[0] if "/" in rest else "core"
+
+
 def aggregate_by_dir(root: ET.Element) -> dict[str, tuple[int, int]]:
-    """遍历 <class filename>，按 src/core/<子目录>/ 聚合 (有效行数, 命中行数)。"""
-    stats: dict[str, list[int]] = {}
+    """按 (规范化 filename, 行号) 去重，各模块取 hits 最大值，再按 src/core/<子目录>/ 聚合。
+
+    R-41：OpenCppCoverage 每个模块（exe/dll）一份 <package>，静态库 gayospace_core 被多个
+    测试 exe 链入时，同一源文件会在多个包里各出现一次——直接累加会把共同引用的文件
+    重复计数（覆盖的被 0 命中模块腰斩 → 假红）。跨模块语义正确的口径：同一行取 max。
+    """
+    line_hits: dict[tuple[str, int], int] = {}
     for cls in root.iter("class"):
         filename = norm(cls.get("filename", ""))
-        m = RE_CORE_SUBDIR.search(filename)
-        if not m:
+        if _subdir_of(filename) is None:
             continue  # 非 core 范围（gui/cli 等）不在覆盖率分母内
-        subdir = m.group(1)
-        bucket = stats.setdefault(subdir, [0, 0])
         for line in cls.iter("line"):
-            bucket[0] += 1
-            if int(line.get("hits", "0")) > 0:
-                bucket[1] += 1
+            key = (filename, int(line.get("number", "0")))
+            hits = int(line.get("hits", "0"))
+            if hits > line_hits.get(key, -1):
+                line_hits[key] = hits
+    stats: dict[str, list[int]] = {}
+    for (filename, _), hits in line_hits.items():
+        bucket = stats.setdefault(_subdir_of(filename), [0, 0])
+        bucket[0] += 1
+        if hits > 0:
+            bucket[1] += 1
     return {d: (v[0], v[1]) for d, v in stats.items()}
 
 

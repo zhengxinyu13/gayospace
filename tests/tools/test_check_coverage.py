@@ -90,6 +90,48 @@ with tempfile.TemporaryDirectory() as tmp:
         os.chdir(old_cwd)
     check("serial 50% 低于 60% 阈值 → exit 1", rc == 1, f"实际 {rc}")
 
+# 4. R-41：同一文件被两个模块链入（重复出现），取 max 命中而非累加分母
+XML_DUP = """
+<coverage line-rate="0.9">
+  <package name="gayospace-tests-core.exe" line-rate="1.0">
+    <classes>
+      <class name="Port" filename="C:\\src\\gayospace\\src\\core\\serial\\Port.cpp" line-rate="1.0">
+        <lines><line hits="1" number="1"/><line hits="1" number="2"/></lines>
+      </class>
+    </classes>
+  </package>
+  <package name="gayospace-tests-qt.exe" line-rate="0.0">
+    <classes>
+      <class name="Port" filename="C:\\src\\gayospace\\src\\core\\serial\\Port.cpp" line-rate="0.0">
+        <lines><line hits="0" number="1"/><line hits="0" number="2"/></lines>
+      </class>
+    </classes>
+  </package>
+</coverage>
+"""
+stats = cc.aggregate_by_dir(doc_from_xml(XML_DUP))
+check(
+    "R-41 跨模块重复行取 max（100% 而非 50%）",
+    stats.get("serial") == (2, 2),
+    f"实际 {stats.get('serial')}",
+)
+
+# 5. R-43：src/core/ 根级源文件归入 "core" 桶（默认阈值 0.80）
+XML_ROOTFILE = XML_REAL.replace(
+    "</coverage>",
+    """
+  <package name="gayospace-tests-core.exe" line-rate="1.0">
+    <classes>
+      <class name="Common" filename="C:\\src\\gayospace\\src\\core\\Common.cpp" line-rate="0.5">
+        <lines><line hits="1" number="1"/><line hits="0" number="2"/></lines>
+      </class>
+    </classes>
+  </package>
+</coverage>""",
+)
+stats = cc.aggregate_by_dir(doc_from_xml(XML_ROOTFILE))
+check("R-43 根级文件归入 core 桶", stats.get("core") == (2, 1), f"实际 {stats.get('core')}")
+
 failed = [r for r in _results if not r[1]]
 for name, ok, detail in _results:
     print(("PASS " if ok else "FAIL ") + name + ("" if ok else f"  <- {detail}"))
