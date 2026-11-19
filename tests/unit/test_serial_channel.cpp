@@ -58,8 +58,7 @@ struct Probe {
 
 // ---- SerialChannel：打开/关闭状态机 ----
 
-TEST_CASE("open success reaches Connected", "[serial][channel]")
-{
+TEST_CASE("open success reaches Connected", "[serial][channel]"){
     FakeTransport transport;
     SerialChannel channel(&transport);
     Probe probe;
@@ -77,6 +76,8 @@ TEST_CASE("user close returns to Disconnected", "[serial][channel]")
 {
     FakeTransport transport;
     SerialChannel channel(&transport);
+    Probe probe;
+    probe.attach(channel);
     channel.setPolicy(testPolicy());
 
     channel.open(SerialParams{});
@@ -85,6 +86,14 @@ TEST_CASE("user close returns to Disconnected", "[serial][channel]")
     channel.close();
     REQUIRE(channel.state() == SerialChannelState::Disconnected);
     REQUIRE_FALSE(transport.isOpen());
+
+    // R-51 验收：用户主动关闭不得触发重连状态与排程
+    REQUIRE(probe.scheduleDelays.isEmpty());
+    REQUIRE(probe.scheduleAttempts.isEmpty());
+    REQUIRE_FALSE(probe.states.contains(static_cast<int>(SerialChannelState::Reconnecting)));
+    REQUIRE(probe.states == QVector<int>{static_cast<int>(SerialChannelState::Connected),
+        static_cast<int>(SerialChannelState::Disconnected)});
+    REQUIRE(transport.m_closeCount == 1); // R-54 同源：close 必须真的关传输
 }
 
 TEST_CASE("initial open failure reports openFailed without auto-reconnect", "[serial][channel]")
@@ -105,16 +114,20 @@ TEST_CASE("initial open failure reports openFailed without auto-reconnect", "[se
     REQUIRE(transport.m_openCount == 0);
 }
 
-TEST_CASE("initial open failure with occupied port enters Failed", "[serial][channel]")
+TEST_CASE("initial open failure with occupied port enters Failed and reports openFailed",
+    "[serial][channel]")
 {
     FakeTransport transport;
     SerialChannel channel(&transport);
+    Probe probe;
+    probe.attach(channel);
     channel.setPolicy(testPolicy());
 
     transport.m_nextOpenError = SerialErrorKind::AccessDenied; // 占用：不可重试
     channel.open(SerialParams{});
 
     REQUIRE(channel.state() == SerialChannelState::Failed);
+    REQUIRE(probe.openFailedFired); // R-53：不可重试的打开失败同样发 openFailed
 }
 
 // ---- SerialChannel：会话中断后的自动重连 ----
@@ -186,6 +199,50 @@ TEST_CASE("stale reconnect timer after close is a no-op", "[serial][channel]")
     channel.fireReconnectTimer(); // 残余定时器触发：不得重开
     REQUIRE(channel.state() == SerialChannelState::Disconnected);
     REQUIRE(transport.m_openCount == 1); // 只有最初那一次 open
+}
+
+TEST_CASE("reconfig open while connected emits no reconnected or reconnect schedule",
+    "[serial][channel]")
+{
+    // R-51 验收（探针 C）：已连接时再次 open（重配）——QSerialTransport 会先关旧口，
+    // 不得误判为会话中断而进入 Reconnecting / 误发 reconnected。
+    FakeTransport transport;
+    SerialChannel channel(&transport);
+    Probe probe;
+    probe.attach(channel);
+    channel.setPolicy(testPolicy());
+
+    channel.open(SerialParams{});
+    REQUIRE(channel.state() == SerialChannelState::Connected);
+
+    SerialParams reconfig;
+    reconfig.portName = QStringLiteral("COM7");
+    channel.open(reconfig);
+
+    REQUIRE(channel.state() == SerialChannelState::Connected);
+    REQUIRE_FALSE(probe.reconnectedFired);
+    REQUIRE(probe.scheduleDelays.isEmpty());
+    REQUIRE_FALSE(probe.states.contains(static_cast<int>(SerialChannelState::Reconnecting)));
+    REQUIRE(transport.m_openCount == 2);
+    REQUIRE(transport.m_params.portName == QStringLiteral("COM7"));
+}
+
+TEST_CASE("transient error with auto-reconnect off closes transport", "[serial][channel]")
+{
+    // R-54 验收：autoReconnect 关闭 + 瞬态错误（Timeout，端口未关）——
+    // 状态迁移到 Disconnected 的同时必须关闭传输，二者保持一致。
+    FakeTransport transport;
+    SerialChannel channel(&transport);
+    channel.setAutoReconnect(false);
+    channel.setPolicy(testPolicy());
+
+    channel.open(SerialParams{});
+    REQUIRE(transport.isOpen());
+
+    transport.simulateError(SerialErrorKind::Timeout);
+    REQUIRE(channel.state() == SerialChannelState::Disconnected);
+    REQUIRE_FALSE(transport.isOpen());
+    REQUIRE(transport.m_closeCount == 1);
 }
 
 TEST_CASE("auto-reconnect off falls back to Disconnected on disconnect", "[serial][channel]")

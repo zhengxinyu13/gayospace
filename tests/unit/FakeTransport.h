@@ -36,6 +36,7 @@ public:
             return;
         }
         m_open = false;
+        ++m_closeCount;
         emit closed();
     }
 
@@ -54,6 +55,7 @@ public:
     SerialErrorKind m_nextOpenError = SerialErrorKind::None; // 下一次 open 失败的错误类型
     bool m_writeFails = false;
     int m_openCount = 0;
+    int m_closeCount = 0;
     QByteArray m_lastWritten;
     SerialParams m_params;
     bool m_open = false;
@@ -64,6 +66,12 @@ public:
         m_open = false;
         emit errorOccurred(kind, userMessage(kind));
         emit closed();
+    }
+
+    // 仅注入错误、端口保持打开（模拟 Timeout/Write 等瞬态错误——R-54 场景）
+    void simulateError(SerialErrorKind kind)
+    {
+        emit errorOccurred(kind, userMessage(kind));
     }
 
     void simulateBytes(const QByteArray& data) { emit bytesReceived(data); }

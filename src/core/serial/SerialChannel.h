@@ -33,6 +33,8 @@ public:
     void setPolicy(const ReconnectPolicy& policy);
 
     // 用户请求打开。打开结果经 opened()/errorOccurred 异步回报（传输层同步实现时为同步回调）。
+    // 契约（R-53）：凡 open() 发起的失败（无论错误可否重试）一律发 openFailed；
+    // 可重试错误保持 Disconnected（由上层决定手动重试），不可重试错误进入 Failed。
     void open(const SerialParams& params);
     // 用户主动关闭：终止重连循环 → Disconnected。
     void close();
@@ -54,7 +56,7 @@ signals:
     void reconnectScheduled(int attempt, int delayMs);
     // 自动重连成功回到 Connected。
     void reconnected();
-    // 用户 open() 失败（未触发自动重连的初始打开失败，供 CLI/GUI 直接报错）。
+    // 用户 open() 失败（含可重试与不可重试错误，R-53 契约统一；供 CLI/GUI 直接报错）。
     void openFailed(gayospace::serial::SerialErrorKind kind, const QString& message);
     // 收到原始字节（转发自传输层）。
     void bytesReceived(const QByteArray& data);
@@ -69,7 +71,8 @@ private:
     ISerialTransport* m_transport;
     ReconnectPolicy m_policy = ReconnectPolicy::defaultPolicy();
     bool m_autoReconnect = true;
-    bool m_wasReconnecting = false; // 本次 Connected 是否来自自动重连（区分首开与重连成功）
+    bool m_wasReconnecting = false;  // 本次 Connected 是否来自自动重连（区分首开与重连成功）
+    bool m_openInProgress = false;   // 用户 open() 执行中（R-53：判定错误是否由打开发起）
     SerialChannelState m_state = SerialChannelState::Disconnected;
     SerialParams m_params;
     int m_attempt = 0; // 已执行的重连尝试次数（0 = 未在重连）
