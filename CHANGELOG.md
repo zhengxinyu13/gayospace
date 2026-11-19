@@ -5,6 +5,10 @@
 
 ## [未发布]
 
+### 第 3 轮评审合入（本地评审记录，未随仓库发布；批准人：Grayson，日期 2026-11-19）
+
+- 2026-11-19 【合并】bugfix/review-r3-gates → docs/review-r3-sync --no-ff 合入 main（merge 1c6b089 / 1bde1db）；feature/test-framework 确认是 main 祖先后删除远端与本地分支。**main CI 全绿（run https://github.com/zhengxinyu13/gayospace/actions/runs/44477041081）——第 4 轮评审"编码准入"达成，自本条起允许进入编码**（Qwt 透明 spike 仍为 GUI 模块开工前硬前置；R-33/R-34 为管道 PR 验收项）。
+
 ### 第 3 轮评审修复（本地评审记录，未随仓库发布；批准人：Grayson，日期 2026-11-19）
 
 - 2026-11-19 【修正】R-41 覆盖率跨模块重复行按 (文件, 行号) 去重取 max 命中（静态库被多测试 exe 链入时原口径会重复计数→假红）；R-43 src/core/ 根级源文件归入 core 桶；门禁自测扩至 9/9。
