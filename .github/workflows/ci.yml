@@ -60,6 +60,9 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           if (-not (Test-Path coverage.xml)) { Write-Error "coverage.xml 未生成"; exit 1 }
 
+      - name: Coverage gate self-tests (R-42：先证明门禁脚本没坏，失败即跳过 gate)
+        run: python tests/tools/test_check_coverage.py
+
       - name: Coverage gate (R-02：解析 line-rate 并按 TS-SW 第 12 节阈值断言，不达标即红)
         run: python tools/ci/check_coverage.py
 
