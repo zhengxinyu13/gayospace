@@ -23,6 +23,8 @@ public:
 
 private:
     QSerialPort* m_port; // 与本对象同线程亲和（父对象绑定）
+    bool m_inOpen = false;             // m_port->open() 执行中
+    bool m_errorSeenDuringOpen = false; // 本次 open() 期间 Qt 已自发过 errorOccurred（R-52 去重）
 };
 
 } // namespace gayospace::serial
