@@ -49,10 +49,10 @@ include(Catch)
 # ---- 统一编译选项（R-05）----
 # 位置刻意在 FetchContent_MakeAvailable 之后：add_compile_options 只影响其后创建的
 # target（自有代码），Catch2 等第三方 target 不受 /W4 /WX 影响。
-# /utf-8：源码为 UTF-8 无 BOM 且含中文注释，MSVC 无此开关按活动代码页解析（CI 出 C4819，
-# 中文字面量可能乱码甚至尾字节撞 0x5C 语法错误）。
+# /utf-8 与 /permissive- /Zc:__cplusplus 由 Qt6::Platform interface 已带入（R-44 去重，
+# 避免重复参数干扰"哪个开关在生效"的判断）；这里只补 Qt 不管的告警等级与告警即错。
 if(MSVC)
-    add_compile_options(/utf-8 /W4 /permissive- /WX)
+    add_compile_options(/W4 /WX)
 else()
     add_compile_options(-Wall -Wextra -Wpedantic)  # gcc/clang 暂不开 -Werror，随 Linux CI 稳定后再开
 endif()
