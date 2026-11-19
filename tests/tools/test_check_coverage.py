@@ -155,6 +155,26 @@ check(
     f"实际 {sorted(stats)}",
 )
 
+# 7. R-58：手写文件/目录名含 autogen 字样不应被误伤（子串匹配会误排）
+XML_HANDWRITTEN = XML_REAL.replace(
+    "</coverage>",
+    """
+  <package name="gayospace-tests-core.exe" line-rate="1.0">
+    <classes>
+      <class name="AutogenHelper" filename="C:\\src\\gayospace\\src\\core\\serial\\port_autogen_helper.cpp" line-rate="1.0">
+        <lines><line hits="1" number="1"/></lines>
+      </class>
+    </classes>
+  </package>
+</coverage>""",
+)
+stats = cc.aggregate_by_dir(doc_from_xml(XML_HANDWRITTEN))
+check(
+    "R-58 手写文件含 autogen 字样仍计入分母",
+    stats.get("serial") == (1, 1),
+    f"实际 {stats.get('serial')}",
+)
+
 failed = [r for r in _results if not r[1]]
 for name, ok, detail in _results:
     print(("PASS " if ok else "FAIL ") + name + ("" if ok else f"  <- {detail}"))
