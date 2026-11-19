@@ -3,6 +3,9 @@ add_library(gayospace_core STATIC
     applogic/Version.cpp
     serial/SerialParams.cpp
     serial/SerialError.cpp
+    serial/ISerialTransport.h
+    serial/QSerialTransport.cpp
+    serial/QSerialTransport.h
 )
 target_include_directories(gayospace_core
     PUBLIC  ${CMAKE_CURRENT_SOURCE_DIR}
