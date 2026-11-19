@@ -217,6 +217,9 @@ TEST_CASE("reconfig open while connected emits no reconnected or reconnect sched
 
     SerialParams reconfig;
     reconfig.portName = QStringLiteral("COM7");
+    // R-57：closeOnOpen 打开后，第二次 open 会先同步关旧口（发 closed()）——
+    // 与真实 QSerialTransport 行为一致，重配测试才算真正覆盖该路径
+    transport.m_closeOnOpen = true;
     channel.open(reconfig);
 
     REQUIRE(channel.state() == SerialChannelState::Connected);
@@ -224,6 +227,7 @@ TEST_CASE("reconfig open while connected emits no reconnected or reconnect sched
     REQUIRE(probe.scheduleDelays.isEmpty());
     REQUIRE_FALSE(probe.states.contains(static_cast<int>(SerialChannelState::Reconnecting)));
     REQUIRE(transport.m_openCount == 2);
+    REQUIRE(transport.m_closeCount == 1); // 旧口确实被关过（closed() 已同步发出）
     REQUIRE(transport.m_params.portName == QStringLiteral("COM7"));
 }
 
