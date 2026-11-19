@@ -5,6 +5,12 @@
 
 ## [未发布]
 
+### 串口层首批合并（PR #1；批准人：Grayson，日期 2026-11-19）
+
+- 2026-11-19 【合并】feature/serial-core → main 经 PR #1 合入（merge 1bb81f1）；**main CI 全绿（run https://github.com/zhengxinyu13/gayospace/actions/runs/44503338983）**——串口层首批落地：SerialParams 参数校验、SerialErrorKind 领域错误映射（占用不重试）、ReconnectPolicy 退避策略（1s→2s→4s→5s 封顶 ×10）、ISerialTransport 最小传输接口 + QSerialTransport 封装、SerialChannel 四态状态机与自动重连编排；`src/core/serial` 覆盖率 71.98%（阈值 60%），31 Catch2 + 1 Qt 用例全绿。
+- 2026-11-19 【里程碑】评审第 5~8 轮闭环：R-46（CMP0135）、R-51~R-56（关闭/重配误触发重连、openFailed 契约统一、断开同步关端口、open 错误信号去重、QSerialTransport 行为测试、端口名 trim）全部修复关闭；R-57/R-58 留下一轮。
+- 2026-11-19 【补强】CI 随串口层调整（590d97c、53f74df）：两个 job 的 Qt 安装补 SerialPort 模块；AUTOMOC 生成文件（`*_autogen`）不进覆盖率分母（门禁自测 10/10）。
+
 ### 第 3 轮评审合入（本地评审记录，未随仓库发布；批准人：Grayson，日期 2026-11-19）
 
 - 2026-11-19 【合并】bugfix/review-r3-gates → docs/review-r3-sync --no-ff 合入 main（merge 1c6b089 / 1bde1db）；feature/test-framework 确认是 main 祖先后删除远端与本地分支。**main CI 全绿（run https://github.com/zhengxinyu13/gayospace/actions/runs/44477041081）——第 4 轮评审"编码准入"达成，自本条起允许进入编码**（Qwt 透明 spike 仍为 GUI 模块开工前硬前置；R-33/R-34 为管道 PR 验收项）。
