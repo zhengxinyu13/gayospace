@@ -3,6 +3,8 @@ add_library(gayospace_core STATIC
     applogic/Version.cpp
     serial/SerialParams.cpp
     serial/SerialError.cpp
+    serial/SerialChannel.cpp
+    serial/SerialChannel.h
     serial/ISerialTransport.h
     serial/QSerialTransport.cpp
     serial/QSerialTransport.h
