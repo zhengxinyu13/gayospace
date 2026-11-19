@@ -5,6 +5,11 @@
 
 ## [未发布]
 
+### 管道并发契约定稿（docs/ts-pipeline-concurrency PR；批准人：Grayson，日期 2026-11-19）
+
+- 2026-11-19 【变更】R-33/R-34 定稿（CODE-REVIEW 第 9 轮 §3 第 1 步）：ChannelStore 并发方案三选一定为 `std::atomic_ref<float>`（relaxed）+ `writeIndex` release/acquire + 读侧复核重试（单份存储，内存上界 76.8 MB 不变，废止裸 seqlock 与双缓冲）；SPSC 满载改两分支——读侧空闲丢最旧（`droppedBytes`）、读侧在飞丢新到（`rx_dropped`），废止"零拷贝"表述统一为拷贝快照；CLI JSON stats 同步增 `rx_dropped`。TS-SW 升 v1.1（§3.2/§3.3/§6），设计论证与 9 项测试矩阵见 docs/ts-pipeline-concurrency.md。影响：TS-SW 3/6 节；`feature/pipeline-core` 依此开工（协议与管道代码未开工，无已发布设备）。
+- 2026-11-19 【补强】第 9 轮第 0 步测试卫生（chore/test-hygiene PR）：R-57 FakeTransport 加 closeOnOpen（重配回归测试真正覆盖先关旧口路径）；R-58 覆盖率门禁 `_autogen` 排除改按路径组件匹配（自测 11/11）。
+
 ### 串口层首批合并（PR #1；批准人：Grayson，日期 2026-11-19）
 
 - 2026-11-19 【合并】feature/serial-core → main 经 PR #1 合入（merge 1bb81f1）；**main CI 全绿（run https://github.com/zhengxinyu13/gayospace/actions/runs/44503338983）**——串口层首批落地：SerialParams 参数校验、SerialErrorKind 领域错误映射（占用不重试）、ReconnectPolicy 退避策略（1s→2s→4s→5s 封顶 ×10）、ISerialTransport 最小传输接口 + QSerialTransport 封装、SerialChannel 四态状态机与自动重连编排；`src/core/serial` 覆盖率 71.98%（阈值 60%），31 Catch2 + 1 Qt 用例全绿。

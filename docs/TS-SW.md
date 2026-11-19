@@ -1,12 +1,13 @@
-# GayoSpace 软件技术方案（TS-SW）v1.0（定稿）
+# GayoSpace 软件技术方案（TS-SW）v1.1（定稿）
 
-> 状态：**定稿（共识版 v1.0）**——2026-11-16 Grayson 确认；后续变更走 AGENTS.md 第十二节变更管理
-> 日期：2026-11-16
+> 状态：**定稿（共识版 v1.1）**——v1.1 变更：R-33/R-34 管道并发契约定稿（§3.2/§3.3/§6），论证与测试矩阵见 docs/ts-pipeline-concurrency.md；随该文档 PR 合入并经 Grayson 批准后生效
+> 日期：2026-11-16（v1.1：2026-11-19）
 > 上游依据：docs/PRD.md（基础共识版 v1.0）、docs/DoD.md（定稿 v1.1）
 > 本项目无硬件，无 TS-HW / HSI；本 TS 是唯一的"怎么做"事实来源。
 > v0.2 变更：依据外部评审（DeepSeek，2026-11-16，Grayson 提交）补 6 处阻塞缺口（发送路径、失效模式 4 行、ChannelStore 数据模型、IProtocolParser 接口、协议热切换跨线程同步、串口重连策略）与全部重要/细节项；章节重排。
 > v0.3 变更：待核项 #1/#2/#4 关闭——Qt 锁定 6.8 LTS（Grayson 2026-11-16 决策）；OpenCppCoverage 维持 v1.0 使用 + v1.1 评估迁移（选项 A，Grayson 确认）；FireWater any: 判定规则经核对与官方行为一致并回填出处。
 > v1.0 定稿变更：按 Grayson 最终回填修订技术栈两行与待核清单口径；三项待核关闭，两项（com0com、Qwt spike）转入编码阶段执行。
+> v1.1 变更（2026-11-19）：R-33/R-34 定稿——§3.2 删"零拷贝"并补在飞满载两分支（rx_dropped）；§3.3 并发模型定为 atomic_ref<float> 方案；§6 CLI stats 同步。
 
 ## 1. 技术栈总表
 
@@ -63,20 +64,22 @@ tests/
 
 **QSerialPort 线程亲和性时序**：`QSerialPort` 实例在 worker 线程内构造（worker 对象 moveToThread 到专职线程，在其 `started` 信号槽里 `new QSerialPort(this)`），读写、readyRead、参数设置全部发生在该线程；主线程只通过队列连接的信号槽下发"打开/关闭/改参数"命令。一个端口一个 worker，杜绝跨线程访问。
 
-### 3.2 SPSC 环形缓冲（R-07 并发契约修订，2026-11-18）
+### 3.2 SPSC 环形缓冲（R-07 并发契约 + R-34 定稿，2026-11-19）
 
 - 存储：预分配连续 `std::byte` 数组（默认 4 MB，评审可调），读写位置用 `std::atomic<uint64_t>` 累计序号（单调递增，取模寻址），无锁。
-- 传递单位：字节流（不按块分配内存，解析线程按序号区间直接读，**零拷贝**——读侧只读写侧未覆盖的区间）。
-- **原子量与内存序（并发安全前提，原文"写侧推进读序号"与读侧安全读相矛盾，本条修正）**：
+- 传递单位：字节流。读侧按序号区间取**拷贝快照**（拷贝语义，处理与缓冲解耦；R-34：废止"零拷贝"表述）。
+- **原子量与内存序**：
   - `writePos`：写侧独占写（release）；
-  - `readPos`：读侧发布消费进度（release），读侧读它（acquire）；推进由双方 CAS 完成（谁推得远谁生效），单调不减；
-  - `readInFlight`：读侧正在处理的批次起始序号（读侧写，写侧 acquire）——**写侧覆盖判定的边界用它，而不是 readPos**；
-  - `droppedBytes`：丢弃字节计数（relaxed 累加，读侧汇总显示）。
-- **读侧协议**：批量取数前先写 `readInFlight = readPos` → 拷贝区间数据 → 处理完发布 `readPos = 批次末尾`（release）→ 清 `readInFlight = readPos`。批次区间永不被写侧触碰。
-- **满载策略（保留 PRD"丢最旧"，语义修正为安全实现）**：写侧可覆盖的最老边界 = `max(readPos, readInFlight)`；空间不足时写侧推进 `readPos` 跳过未读区间（跳过字节计入 `droppedBytes`）再覆盖。读侧在飞的区间永不被覆盖 → 无数据竞争、无 UB。
-- 批量读 API 返回语义：返回 `[begin, end)` 有效区间快照（拷贝语义，调用方处理与缓冲解耦）；区间为空立即返回，不阻塞。
-- `droppedBytes` 只计"写侧覆盖跳过的未读字节"；解析错误另计（`frames_bad` / `bytes_dropped_sync`），三者不相混。
+  - `readPos`：读侧发布消费进度（release），读侧与写侧 acquire 读；满载跳过时写侧 CAS 推进（release），单调不减；
+  - `readInFlight`：读侧在飞批次起始序号（读侧 release 写，写侧 acquire 读）——**写侧覆盖保护边界 = `max(readPos, readInFlight)`**（R-34 定稿）；不变量 `readInFlight ≤ readPos`（清位与发布同值）；
+  - `droppedBytes`（写侧跳过的未读字节）与 `rx_dropped`（写侧在飞期间丢弃的新到字节）：relaxed 独立累加，读侧汇总显示；**两者独立计数、不相混**（R-34）。
+- **读侧协议**：`readInFlight = readPos`（release）→ 拷贝批次区间 → `readPos = 批次末尾`（release）→ `readInFlight = readPos`（release）。批次区间永不被写侧触碰。
+- **满载策略（R-34 两分支）**：
+  - 读侧空闲（`readInFlight == readPos`）：写侧推进 `readPos` 跳过最老未读区间再覆盖，跳过量计 `droppedBytes`（保留 PRD"丢最旧"）；
+  - 读侧在飞（`readInFlight < readPos`）：**丢弃新到字节块**，计 `rx_dropped`；不阻塞串口线程、不触碰在飞区间。
+- 批量读 API 返回拷贝快照；区间为空立即返回，不阻塞。
 - 深度：8ch×1kHz JustFloat 帧长 36 B（8×4+4），36 kB/s 下 4 MB ≈ **111 秒**缓冲深度，远超渲染周期。
+- 设计论证与测试矩阵见 docs/ts-pipeline-concurrency.md（§2、§3）。
 
 ### 3.3 ChannelStore（核心数据模型；R-09 内存预算修订，2026-11-18）
 
@@ -91,7 +94,7 @@ tests/
 | 32（上限） | **76.8 MB（内存上界）** | 7.7 MB |
 
   原文"8 通道 ≈ 38 MB"按 double 误算且未覆盖 32 通道上限（double 口径实为 153.6 MB）；定稿口径：float + 按当前配置通道数分配 + 窗长可调，上界 76.8 MB。环形缓冲**按当前配置的通道数分配，通道数变更时重建**（4.4 切换时序已覆盖）。
-- **并发模型（修订，废止"双缓冲"表述）**：每通道一份环形数组 + seqlock 序号发布（奇=写中）；解析线程**原地写入、不复制整块数据**（原文"写后台缓冲再切换"即变相双份内存，删）；GUI/CLI 读时取序号，读完复核，奇数或序号变化则重读（有界重试 2 次，仍未取到即跳过本渲染周期）。单写多读，无需互斥锁，读侧无阻塞。
+- **并发模型（R-33 定稿，2026-11-19，废止"双缓冲"与裸 seqlock 表述）**：每通道一份环形 float 数组 + `std::atomic<uint64_t> writeIndex` 发布（release）+ 样本读写经 `std::atomic_ref<float>`（relaxed）——**单写多读、无 UB、单份存储**（内存上界 76.8 MB 不变）。读侧 acquire 读 `writeIndex` → 读窗口 → 复测 `writeIndex`：不变则快照有效，变化则有界重试 2 次，仍失败跳过本渲染周期（降级语义不变）。正确性论证、前提约束（window ≤ capacity）与降级说明见 docs/ts-pipeline-concurrency.md §1。解析线程**原地写入、不复制整块数据**；GUI/CLI 读侧无阻塞。
 - **快照语义**：渲染每次取"最新完整状态"，按需回溯窗口（默认显示最近 10 秒，缩放可到全缓冲）；暂停模式下照常写入、仅渲染不推进（见 5.3）。
 - **协议差异的通道数语义**：JustFloat = 固定 N（用户配置）；FireWater = 按行字段数动态（以首行为基准，后续行字段数变化计错误）；Script = 按 `parse` 返回数组长度动态（上限 32，超限截断+计数）。通道数变化时 ChannelStore 重建列布局、波形页提示通道映射已重排。
 
@@ -240,9 +243,11 @@ function reset() { ... }
   "meta": {"tool": "gayospace", "version": "1.0.0", "port": "COM3", "baud": 115200,
            "protocol": "justfloat", "channels": 8, "rate": 1000, "started_at": "2026-11-16T12:00:00+08:00"},
   "samples": [{"t_ms": 0, "ch": [1.0, 2.0]}, {"t_ms": 1, "ch": [1.1, 2.0]}],
-  "stats": {"rx_bytes": 320000, "dropped_bytes": 0, "parse_errors": 0}
+  "stats": {"rx_bytes": 320000, "dropped_bytes": 0, "rx_dropped": 0, "parse_errors": 0}
 }
 ```
+
+- `dropped_bytes` = 写侧满载跳过的未读字节（丢旧）；`rx_dropped` = 写侧在读侧在飞期间丢弃的新到字节（R-34 定稿，语义对照见 docs/ts-pipeline-concurrency.md §2.2）；`parse_errors` = 解析错误帧数。三者独立计数。
 
 - `t_ms` = round(frame_index × 1000 / rate)（R-06 时间基准语义，见 3.4）；`--rate` 缺省时该字段改名为 `t_index`（原始帧序号）。
 
