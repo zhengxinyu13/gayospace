@@ -9,6 +9,8 @@ R-30 事实：OpenCppCoverage 的 CoberturaExporter 按**模块**（exe/dll）�
   core/protocol、core/pipeline ≥ 80%；core/serial、core/session ≥ 60%；其余 core 子目录 ≥ 80%。
 R-41：同一源文件被多个测试模块链入时会重复出现，按 (文件, 行号) 去重取 max 命中；
 R-43：src/core/ 根级源文件（无子目录层）归入 "core" 桶，阈值取默认。
+serial 首批补充：AUTOMOC 生成文件（*_autogen/moc_*.cpp、mocs_compilation.cpp）
+是构建产物而非手写代码，不进覆盖率分母（TS-SW 第 12 节分母 = 手写源码目录）。
 
 判定规则：
   - coverage.xml 缺失 / 不可解析 / core 范围内有效行数为 0 → 失败（空报告即假绿，
@@ -41,6 +43,10 @@ def norm(name: str) -> str:
 
 def _subdir_of(filename: str) -> str | None:
     """src/core/<子目录>/xxx.cpp → 子目录名；src/core/xxx.cpp（根级）→ "core"。非 core → None。"""
+    if "_autogen" in norm(filename):
+        # AUTOMOC 生成目录（gayospace_core_autogen/）：moc_*.cpp、mocs_compilation.cpp
+        # 等构建产物不进手写代码的覆盖率分母
+        return None
     m = RE_CORE_PATH.search(filename)
     if not m:
         return None
