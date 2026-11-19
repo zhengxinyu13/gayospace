@@ -132,6 +132,29 @@ XML_ROOTFILE = XML_REAL.replace(
 stats = cc.aggregate_by_dir(doc_from_xml(XML_ROOTFILE))
 check("R-43 根级文件归入 core 桶", stats.get("core") == (2, 1), f"实际 {stats.get('core')}")
 
+# 6. serial 首批：AUTOMOC 生成文件（*_autogen）不进覆盖率分母
+XML_AUTOGEN = XML_REAL.replace(
+    "</coverage>",
+    """
+  <package name="gayospace-tests-core.exe" line-rate="0.4">
+    <classes>
+      <class name="moc_SerialChannel" filename="C:\\src\\gayospace\\out\\build\\ci\\src\\core\\gayospace_core_autogen\\include\\moc_SerialChannel.cpp" line-rate="0.4">
+        <lines><line hits="1" number="1"/><line hits="0" number="2"/><line hits="0" number="3"/></lines>
+      </class>
+      <class name="mocs_compilation" filename="C:\\src\\gayospace\\out\\build\\ci\\src\\core\\gayospace_core_autogen\\mocs_compilation.cpp" line-rate="0.0">
+        <lines><line hits="0" number="1"/></lines>
+      </class>
+    </classes>
+  </package>
+</coverage>""",
+)
+stats = cc.aggregate_by_dir(doc_from_xml(XML_AUTOGEN))
+check(
+    "_autogen 生成文件不进分母（桶集合不变）",
+    set(stats) == {"applogic", "protocol", "pipeline"},
+    f"实际 {sorted(stats)}",
+)
+
 failed = [r for r in _results if not r[1]]
 for name, ok, detail in _results:
     print(("PASS " if ok else "FAIL ") + name + ("" if ok else f"  <- {detail}"))

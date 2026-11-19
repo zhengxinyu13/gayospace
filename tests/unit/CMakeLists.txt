@@ -3,6 +3,11 @@
 
 add_executable(gayospace-tests-core
     test_version_smoke.cpp
+    test_serial_params.cpp
+    test_serial_reconnect_policy.cpp
+    test_serial_channel.cpp
+    test_qserial_transport.cpp
+    FakeTransport.h
 )
 target_link_libraries(gayospace-tests-core PRIVATE gayospace_core Catch2::Catch2WithMain)
 # 期望版本由构建系统注入，测试断言版本注入链路一致
