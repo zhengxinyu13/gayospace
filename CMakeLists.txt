@@ -40,6 +40,8 @@ FetchContent_Declare(
     catch2
     URL https://codeload.github.com/catchorg/Catch2/tar.gz/fa43b77429ba76c462b1898d6cd2f2d7a9416b14
     URL_HASH SHA256=e7bbe2a99e111dfc9eb931f5e95b11b02f18f64c4f5b3aff6fdbd118fe440107
+    # R-46：URL 下载解包时间戳固定为归档内时间，消除 CMP0135 dev 告警
+    DOWNLOAD_EXTRACT_TIMESTAMP TRUE
 )
 FetchContent_MakeAvailable(catch2)
 # Catch2 v3 的 catch_discover_tests 命令由 extras/Catch.cmake 提供，FetchContent 不自动引入
