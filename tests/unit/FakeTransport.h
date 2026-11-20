@@ -17,6 +17,12 @@ public:
 
     bool open(const SerialParams& params) override
     {
+        // R-57：closeOnOpen 模拟 QSerialTransport::open 的"先关旧口再开"（同步发 closed()），
+        // 使重配路径的回归测试真正覆盖 handleTransportClosed 的误判场景——
+        // 不开此开关时 Fake 旧口保持打开，测试在修复前的代码上也会通过（假回归保护）。
+        if (m_closeOnOpen && m_open) {
+            close();
+        }
         m_params = params;
         if (m_nextOpenError != SerialErrorKind::None) {
             const auto kind = m_nextOpenError;
@@ -54,6 +60,7 @@ public:
     // ---- 测试注入面 ----
     SerialErrorKind m_nextOpenError = SerialErrorKind::None; // 下一次 open 失败的错误类型
     bool m_writeFails = false;
+    bool m_closeOnOpen = false; // open 时先关旧口（R-57：模拟 QSerialTransport 行为）
     int m_openCount = 0;
     int m_closeCount = 0;
     QByteArray m_lastWritten;

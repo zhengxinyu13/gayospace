@@ -43,9 +43,10 @@ def norm(name: str) -> str:
 
 def _subdir_of(filename: str) -> str | None:
     """src/core/<子目录>/xxx.cpp → 子目录名；src/core/xxx.cpp（根级）→ "core"。非 core → None。"""
-    if "_autogen" in norm(filename):
-        # AUTOMOC 生成目录（gayospace_core_autogen/）：moc_*.cpp、mocs_compilation.cpp
-        # 等构建产物不进手写代码的覆盖率分母
+    # R-58：按路径组件判断 AUTOMOC 生成目录（目录名形如 <target>_autogen）。
+    # 不用子串匹配——手写文件名/目录名含 "_autogen" 字样（如 port_autogen_helper.cpp）
+    # 不应被静默排除出分母。
+    if any(part.endswith("_autogen") for part in norm(filename).split("/")):
         return None
     m = RE_CORE_PATH.search(filename)
     if not m:
