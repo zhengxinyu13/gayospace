@@ -5,6 +5,13 @@
 
 ## [未发布]
 
+### 管道并发契约定稿（docs/ts-pipeline-concurrency PR；批准人：Grayson，日期 2026-11-19）
+
+- 2026-11-20 【修订】第 12 轮评审条件批准（R-59/R-61/R-64 设计闭合），合并前补 R-65 三处契约细节：`writePos` 补读侧 acquire 内存序 + 批次 k 来源改临界区内 `k = min(k_max, writePos − readPos)`（不得拷贝未发布区间）；写侧未满直写改**整块边界校验**（`writePos + len − capacity ≤ readPos`，仅校验起始槽对多字节块不够）；"无锁"措辞改"写侧无阻塞、读侧有界自旋"（owner 非严格 lock-free）。测试矩阵扩至 14 项（#14 块尾边界值）。影响：docs/ts-pipeline-concurrency.md v1.2、TS-SW v1.3（§3.2）；协议与管道代码未开工，无已发布设备。
+- 2026-11-20 【修订】第 11 轮评审（R-59 复审未闭合、R-64 新增、R-61 论证方向修正）：SPSC 引入单写者/单读者 `owner` 原子 CAS（0 空闲/1 读侧拷贝/2 写侧覆盖决策）串行化"写侧覆盖决策"与"读侧 begin+copy"——ceiling 方案存在 Dekker 式 TOCTOU（写侧先读空闲后覆盖，恰好覆盖读侧拷贝起点），owner 互斥消除该窗口且写侧不阻塞（CAS 失败即丢新计 `rx_dropped`）；`readPos` 改双方 CAS-max 推进（R-64：普通 store 会被写侧 CAS 挤回致序号回退）；ChannelStore 复测内存序改"窗口读 → atomic_thread_fence(acquire) → 复测"（原末端 load-acquire 论证方向反了，acquire 不保证其前操作不被后移）；测试矩阵扩至 13 项（#4 重写为 TOCTOU 交错、新增 #12 单调性、#13 fence 评审检查点）。影响：docs/ts-pipeline-concurrency.md v1.1、TS-SW v1.2（§3.2/§3.3/§6）；协议与管道代码未开工，无已发布设备。
+- 2026-11-19 【变更】R-33/R-34 定稿（CODE-REVIEW 第 9 轮 §3 第 1 步，第 10 轮 R-59~R-63 修订）：ChannelStore 并发方案三选一定为 `std::atomic_ref<float>`（relaxed）+ `writeIndex` release/acquire + 读侧复测重试（**帧级单索引**保证跨通道同帧对齐，单份存储，内存上界 76.8 MB 不变，废止裸 seqlock 与双缓冲）；SPSC `readInFlight` 定为**批次末序号（ceiling），拷贝前先发布**（R-59：v0.9 起点定义会致拷贝区间被覆盖，data race）；满载两分支——读侧空闲丢最旧（`droppedBytes`）、读侧在飞丢新到（`rx_dropped`），废止"零拷贝"表述统一为拷贝快照；启动未满窗 clamp 到 0（R-60）；CLI JSON stats 同步增 `rx_dropped`。TS-SW 升 v1.1（§3.2/§3.3/§6），设计论证与 11 项测试矩阵见 docs/ts-pipeline-concurrency.md。影响：TS-SW 3/6 节；`feature/pipeline-core` 依此开工（协议与管道代码未开工，无已发布设备）。
+- 2026-11-19 【补强】第 9 轮第 0 步测试卫生（chore/test-hygiene PR）：R-57 FakeTransport 加 closeOnOpen（重配回归测试真正覆盖先关旧口路径）；R-58 覆盖率门禁 `_autogen` 排除改按路径组件匹配（自测 11/11）。
+
 ### 串口层首批合并（PR #1；批准人：Grayson，日期 2026-11-19）
 
 - 2026-11-19 【合并】feature/serial-core → main 经 PR #1 合入（merge 1bb81f1）；**main CI 全绿（run https://github.com/zhengxinyu13/gayospace/actions/runs/44503338983）**——串口层首批落地：SerialParams 参数校验、SerialErrorKind 领域错误映射（占用不重试）、ReconnectPolicy 退避策略（1s→2s→4s→5s 封顶 ×10）、ISerialTransport 最小传输接口 + QSerialTransport 封装、SerialChannel 四态状态机与自动重连编排；`src/core/serial` 覆盖率 71.98%（阈值 60%），31 Catch2 + 1 Qt 用例全绿。
