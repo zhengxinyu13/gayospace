@@ -1,8 +1,8 @@
-# GayoSpace 管道并发契约定稿（TS 管道附录）v1.1（随本 PR 合并生效）
+# GayoSpace 管道并发契约定稿（TS 管道附录）v1.2（随本 PR 合并生效）
 
-> 状态：**v1.1**——v0.9 依第 10 轮评审修订（R-59 ceiling、R-60、R-61、R-62）；v1.1 依第 11 轮评审修订（R-59 复审未闭合 → **owner CAS 串行化**；R-64 新增 → **readPos CAS-max**；R-61 论证方向修正 → **复测前 acquire fence**）。契约正文落在 TS-SW §3.2/§3.3/§6（唯一事实来源，本文档只放论证、前提约束与测试矩阵，防止双源漂移）
-> 日期：2026-11-19（v1.0：2026-11-20 第 10 轮；v1.1：2026-11-20 第 11 轮）
-> 上游依据：TS-SW v1.2 §3.2/§3.3、CODE-REVIEW 第 5 轮 R-33/R-34、第 9 轮 §3、第 10 轮 R-59~R-63、第 11 轮 R-59/R-61/R-64
+> 状态：**v1.2**——v0.9 依第 10 轮评审修订（R-59 ceiling、R-60、R-61、R-62）；v1.1 依第 11 轮评审修订（R-59 复审未闭合 → **owner CAS 串行化**；R-64 新增 → **readPos CAS-max**；R-61 论证方向修正 → **复测前 acquire fence**）；v1.2 依第 12 轮评审补实现级细节（R-65：writePos 读侧 acquire + k 来源、整块边界校验、"无锁"措辞）。契约正文落在 TS-SW §3.2/§3.3/§6（唯一事实来源，本文档只放论证、前提约束与测试矩阵，防止双源漂移）
+> 日期：2026-11-19（v1.0：2026-11-20 第 10 轮；v1.1：2026-11-20 第 11 轮；v1.2：2026-11-20 第 12 轮）
+> 上游依据：TS-SW v1.3 §3.2/§3.3、CODE-REVIEW 第 5 轮 R-33/R-34、第 9 轮 §3、第 10 轮 R-59~R-63、第 11 轮 R-59/R-61/R-64、第 12 轮 R-65
 
 ## 1. R-33：ChannelStore 并发方案三选一定稿
 
@@ -56,8 +56,11 @@
    两个独立原子上的 release/acquire 挡不住这种 Dekker 式"两侧先读后写"窗口；且缓冲满时写侧下一笔写的物理槽位 `writePos mod capacity == R`，恰是读侧拷贝起点——写侧必须在**覆盖发生前**就确定读侧不在飞。修法：引入单写者/单读者的 `owner` 原子（0=空闲，1=读侧拷贝中，2=写侧覆盖决策中），把"写侧覆盖决策"与"读侧 begin+copy"在同一原子上串行化。
 
    ```
-   读侧 beginBatch(k)：
+   读侧 beginBatch(k_max)：                          // 请求上限 k_max，实际 k 临界区内确定（R-65.1）
      CAS owner 0→1（acq_rel）        // 失败有界自旋+让步后重试；仍失败跳过本批次
+     writePos.acquire 读 → k = min(k_max, writePos − readPos)
+                                     // acquire 读 writePos：字节缓冲非原子，必须与写侧 release store 构成同步关系才能见到已发布字节（x86 上"碰巧对"，弱序架构必要）
+                                     // 不得拷贝未发布区间；k == 0 则立即释放 owner 返回空
      readInFlight = readPos + k      // release（ceiling 发布，临界区内）
      copy [readPos, readPos + k)
      readPos = readPos + k           // CAS-max（acq_rel）：仅当新值>当前值才成功——临界区内写侧无法推进，CAS-max 是纵深防御（R-64）
@@ -70,7 +73,9 @@
           → CAS 推进 readPos 跳过最老未读区间，droppedBytes += 跳过量
           → readInFlight = readPos（release，恢复不变量）→ owner = 0（release）→ 再写
 
-   写侧未满直接写：目标槽别名序号 = writePos − capacity < readPos，不触碰拷贝区间，无需 owner。
+   写侧未满整块直写（R-65.2）：整块条件 writePos + len − capacity ≤ readPos（等价剩余空间 ≥ len）
+                                     // 仅校验起始槽不够：块尾别名 = writePos + len − capacity，越过 readPos 会落进拷贝区间
+                                     // 整块校验通过后写入，无需 owner；校验失败 → 按满载流程走 owner 分支
    ```
 
    - 写侧视角在飞判定 = **CAS owner 失败**；`readInFlight` 保留为 ceiling 发布锚点与可观测状态，`readInFlight > readPos ⟺ owner == 1`；
@@ -83,7 +88,7 @@
    - CAS owner 失败（读侧拷贝中）：写侧**丢弃新到字节块**，计 `rx_dropped`；不阻塞串口线程、不触碰 `[readPos, readInFlight)` 区间。
    - CAS owner 成功（读侧空闲）：写侧推进 `readPos` 跳过最老未读区间再覆盖，跳过量计 `droppedBytes`（PRD"丢最旧"语义保留）。
    - `droppedBytes`（跳过未读）与 `rx_dropped`（丢弃新到）**独立累加、独立展示**，丢弃原因可区分；总丢弃 = 两者之和。
-4. 内存序：`owner` CAS 一律 acq_rel；`readPos` 双方 CAS-max 推进（acq_rel）/ acquire 读；`readInFlight` 临界区内 release 写 / acquire 读；`droppedBytes`/`rx_dropped` relaxed 独立累加。
+4. 内存序：`owner` CAS 一律 acq_rel；`writePos` 写侧 release 写 / **读侧 acquire 读**（R-65.1）；`readPos` 双方 CAS-max 推进（acq_rel）/ acquire 读；`readInFlight` 临界区内 release 写 / acquire 读；`droppedBytes`/`rx_dropped` relaxed 独立累加。
 
 ### 2.2 丢弃语义对照（status 栏展示口径）
 
@@ -110,6 +115,7 @@
 | 11 | 跨通道同帧对齐（R-62） | 连续写多帧后读窗口：任一采样行的 ch0..chN 均来自同一帧（frame-major 布局 + 单一 frameIndex） | 单线程 |
 | 12 | `readPos` 单调性（R-64） | ① 读侧 owner==1 拷贝中注入写侧推进 `readPos` 尝试 → 断言被 owner 拒绝（走丢新分支，`readPos` 不动）；② 纵深防御：外部把 `readPos` 推到 R+d（d>k）后执行 publish（CAS-max）→ 断言 `readPos == R+d` 不回退、`readInFlight`/不变量一致 | 单线程交错 |
 | 13 | R-61 内存序评审检查点 | 窗口读与复测之间必须存在 `std::atomic_thread_fence(std::memory_order_acquire)`——代码评审项 + 实现处注释标注（真线程压测无法验证指令顺序，DoD 2.3 归代码评审把关） | 评审检查点 |
+| 14 | 块尾边界值（R-65.2） | 写入长度恰好使块尾别名 == `readPos`（贴住整块校验边界）：断言整块落位成功、不越界、读侧未读区间数据完整 | 单线程交错 |
 
 ## 4. 并发测试确定性（DoD 2.1 反 flaky）
 
