@@ -7,7 +7,7 @@
 
 ### 管道并发契约定稿（docs/ts-pipeline-concurrency PR；批准人：Grayson，日期 2026-11-19）
 
-- 2026-11-19 【变更】R-33/R-34 定稿（CODE-REVIEW 第 9 轮 §3 第 1 步）：ChannelStore 并发方案三选一定为 `std::atomic_ref<float>`（relaxed）+ `writeIndex` release/acquire + 读侧复核重试（单份存储，内存上界 76.8 MB 不变，废止裸 seqlock 与双缓冲）；SPSC 满载改两分支——读侧空闲丢最旧（`droppedBytes`）、读侧在飞丢新到（`rx_dropped`），废止"零拷贝"表述统一为拷贝快照；CLI JSON stats 同步增 `rx_dropped`。TS-SW 升 v1.1（§3.2/§3.3/§6），设计论证与 9 项测试矩阵见 docs/ts-pipeline-concurrency.md。影响：TS-SW 3/6 节；`feature/pipeline-core` 依此开工（协议与管道代码未开工，无已发布设备）。
+- 2026-11-19 【变更】R-33/R-34 定稿（CODE-REVIEW 第 9 轮 §3 第 1 步，第 10 轮 R-59~R-63 修订）：ChannelStore 并发方案三选一定为 `std::atomic_ref<float>`（relaxed）+ `writeIndex` release/acquire + 读侧 load-acquire 复测重试（**帧级单索引**保证跨通道同帧对齐，单份存储，内存上界 76.8 MB 不变，废止裸 seqlock 与双缓冲）；SPSC `readInFlight` 定为**批次末序号（ceiling），拷贝前先发布**（R-59：v0.9 起点定义会致拷贝区间被覆盖，data race）；满载两分支——读侧空闲丢最旧（`droppedBytes`）、读侧在飞丢新到（`rx_dropped`），废止"零拷贝"表述统一为拷贝快照；启动未满窗 clamp 到 0（R-60）；CLI JSON stats 同步增 `rx_dropped`。TS-SW 升 v1.1（§3.2/§3.3/§6），设计论证与 11 项测试矩阵见 docs/ts-pipeline-concurrency.md。影响：TS-SW 3/6 节；`feature/pipeline-core` 依此开工（协议与管道代码未开工，无已发布设备）。
 - 2026-11-19 【补强】第 9 轮第 0 步测试卫生（chore/test-hygiene PR）：R-57 FakeTransport 加 closeOnOpen（重配回归测试真正覆盖先关旧口路径）；R-58 覆盖率门禁 `_autogen` 排除改按路径组件匹配（自测 11/11）。
 
 ### 串口层首批合并（PR #1；批准人：Grayson，日期 2026-11-19）
