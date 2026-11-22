@@ -5,6 +5,10 @@
 
 ## [未发布]
 
+### 管道并发契约定稿合并（PR #4；批准人：Grayson，日期 2026-11-20）
+
+- 2026-11-20 【合并】docs/ts-pipeline-concurrency → main 经 PR #4 合入（merge 68a1eb6）；**main CI 全绿（run https://github.com/zhengxinyu13/gayospace/actions/runs/44718223651）**——R-33/R-34 管道并发契约随合并关闭，连同第 10~12 轮评审项 R-59（owner CAS 串行化）、R-60（容量口径）、R-61（复测前 acquire fence）、R-62（帧级单索引）、R-63（版本状态）、R-64（readPos CAS-max）、R-65（writePos 读侧 acquire / 整块边界校验 / 措辞）全部闭环。`feature/pipeline-core` 自本条起按契约开工（测试先行，矩阵 14 项，core/pipeline 覆盖率门槛 80%）。
+
 ### 管道并发契约定稿（docs/ts-pipeline-concurrency PR；批准人：Grayson，日期 2026-11-19）
 
 - 2026-11-20 【修订】第 12 轮评审条件批准（R-59/R-61/R-64 设计闭合），合并前补 R-65 三处契约细节：`writePos` 补读侧 acquire 内存序 + 批次 k 来源改临界区内 `k = min(k_max, writePos − readPos)`（不得拷贝未发布区间）；写侧未满直写改**整块边界校验**（`writePos + len − capacity ≤ readPos`，仅校验起始槽对多字节块不够）；"无锁"措辞改"写侧无阻塞、读侧有界自旋"（owner 非严格 lock-free）。测试矩阵扩至 14 项（#14 块尾边界值）。影响：docs/ts-pipeline-concurrency.md v1.2、TS-SW v1.3（§3.2）；协议与管道代码未开工，无已发布设备。
