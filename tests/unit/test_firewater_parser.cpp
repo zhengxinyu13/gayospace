@@ -4,6 +4,7 @@
 #include <catch2/matchers/catch_matchers_floating_point.hpp>
 
 #include <cstddef>
+#include <cmath>
 #include <limits>
 #include <string>
 #include <vector>
@@ -211,7 +212,12 @@ TEST_CASE("firewater byte-by-byte feed matches whole-block feed", "[protocol][fi
     for (std::size_t i = 0; i < expected.size(); ++i) {
         REQUIRE(actual[i].frame_index == expected[i].frame_index);
         for (std::size_t c = 0; c < expected[i].ch_count; ++c) {
-            REQUIRE(actual[i].ch[c] == expected[i].ch[c]);
+            // NaN != NaN：坏字段（NaN）按"双方皆 NaN"判等
+            if (std::isnan(expected[i].ch[c])) {
+                REQUIRE(std::isnan(actual[i].ch[c]));
+            } else {
+                REQUIRE(actual[i].ch[c] == expected[i].ch[c]);
+            }
         }
     }
     const auto st = byteByByte.stats();

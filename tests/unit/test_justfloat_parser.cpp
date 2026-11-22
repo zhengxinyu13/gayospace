@@ -5,6 +5,7 @@
 #include <catch2/matchers/catch_matchers_floating_point.hpp>
 
 #include <array>
+#include <cmath>
 #include <cstddef>
 #include <cstring>
 #include <limits>

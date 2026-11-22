@@ -127,7 +127,9 @@ struct ParseFrame {
     uint8_t ch_count;
 };
 
-struct ParseStats { uint64_t frames_ok, frames_bad, bytes_dropped_sync; };
+struct ParseStats { uint64_t frames_ok, frames_bad, bytes_dropped_sync; uint64_t parse_errors; };
+// parse_errors：第 17 轮评审 §2.3 新增——FireWater 失败字段逐个计数（失败字段置 NaN、不丢整行），
+// 独立于 frames_bad（坏帧/坏行）；JustFloat 恒 0。CLI stats.parse_errors 即取本字段（见 6 节）。
 
 class IProtocolParser {
 public:
