@@ -7,7 +7,7 @@
 
 ### 管道核心首批合并（PR #6；批准人：Grayson，日期 2026-11-22）
 
-- 2026-11-22 【合并】feature/pipeline-core → main 经 PR #6 合入（merge af892ae）；**main CI 全绿（run https://github.com/zhengxinyu13/gayospace/actions/runs/45001224496）**——管道核心首批落地：SPSC 环形字节缓冲（owner CAS 串行化覆盖决策 R-59、readPos 双方 CAS-max R-64、整块边界校验 R-65.2、满载双分支 droppedBytes/rxDropped 计数）、ChannelStore 帧级单索引（std::atomic_ref<float> relaxed + writeIndex release/acquire + 复测前 acquire fence R-61/62）；Catch2 用例 50 + Qt 冒烟 1 = ctest 51，`src/core/pipeline` 覆盖率 88.36%（阈值 80%，有效行 146）。经第 14 轮评审修订（R-66 P0 ChannelStore 接入构建、R-67 实测数字入 TS-SW §3.3、R-68 copyFrames 边界检查、R-69 矩阵 #4 改 CAS 结果分支口径、R-70 testSetForceRecheckFailure 确定性降级接缝、R-71 Batch move-only + 测试钩子收进 GAYOSPACE_TESTING），第 15 轮复审批准；R-72（测试宏接线与声明不符，发布打包前必须）、R-73/R-74（nit）挂账，R-67 GUI 快照方案三选一挂账至 GUI 开工前。
+- 2026-11-22 【合并】feature/pipeline-core → main 经 PR #6 合入（merge af892ae）；**main CI 全绿（run https://github.com/zhengxinyu13/gayospace/actions/runs/45001224496）**——管道核心首批落地：SPSC 环形字节缓冲（owner CAS 串行化覆盖决策 R-59、readPos 双方 CAS-max R-64、整块边界校验 R-65.2、满载双分支 droppedBytes/rxDropped 计数）、ChannelStore 帧级单索引（std::atomic_ref<float> relaxed + frameIndex release/acquire + 复测前 acquire fence R-61/62）；Catch2 用例 50 + Qt 冒烟 1 = ctest 51，`src/core/pipeline` 覆盖率 88.36%（阈值 80%，有效行 146）。经第 14 轮评审修订（R-66 P0 ChannelStore 接入构建、R-67 实测数字入 TS-SW §3.3、R-68 copyFrames 边界检查、R-69 矩阵 #4 改 CAS 结果分支口径、R-70 testSetForceRecheckFailure 确定性降级接缝、R-71 Batch move-only + 测试钩子收进 GAYOSPACE_TESTING），第 15 轮复审批准；R-72（测试宏接线与声明不符，发布打包前必须）、R-73/R-74（nit）挂账，R-67 GUI 快照方案三选一挂账至 GUI 开工前。
 
 ### 管道并发契约定稿合并（PR #4；批准人：Grayson，日期 2026-11-20）
 
