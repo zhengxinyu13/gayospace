@@ -29,6 +29,14 @@ public:
         std::uint64_t startPos = 0; // 批次起始序号 R
         std::size_t size = 0;       // 实际 k（≤ k_max，临界区内按已发布字节数确定）
         bool ok = false;            // false = 未获得批次（owner 争用失败或缓冲空，跳过本批次）
+
+        // R-71：禁拷贝（只 move）——可拷贝时 publish 副本后原对象仍 ok=true，
+        // 重复 publish 会静默二次推进 owner 临界区
+        Batch() = default;
+        Batch(Batch&&) = default;
+        Batch& operator=(Batch&&) = default;
+        Batch(const Batch&) = delete;
+        Batch& operator=(const Batch&) = delete;
     };
 
     explicit SpscRingBuffer(std::size_t capacityBytes);
@@ -61,8 +69,10 @@ public:
     [[nodiscard]] std::uint64_t rxDropped() const noexcept { return rxDropped_.load(std::memory_order_relaxed); }
 
     // 仅测试注入（R-64 纵深防御用例）：模拟"写侧 skip 已把 readPos 推过本批末序号"的假想交错。
-    // 生产代码不得调用；publish() 的 CAS-max 保证即使发生该交错 readPos 也不回退。
+    // 生产代码不得调用；publish() 的 CAS-max 保证即使发生该交错 readPos 也不回退（R-71：收进测试宏）。
+#ifdef GAYOSPACE_TESTING
     void testInjectReadPosAdvance(std::uint64_t target);
+#endif
 
 private:
     void advanceReadPosCasMax(std::uint64_t target);

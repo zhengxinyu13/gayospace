@@ -42,7 +42,8 @@ public:
 
     // ---- 分步 API（测试/诊断注入用；readWindow 内部即按此序列实现）----
     [[nodiscard]] std::uint64_t snapshotIndexLoad() const; // acquire 读 frameIndex
-    void copyFrames(std::uint64_t start, std::uint64_t count, std::vector<float>& out); // relaxed 拷贝；out 须预置 count × chCount 个元素
+    // relaxed 拷贝；out 须预置 count × chCount 个元素，不足时安全返回（R-68）
+    void copyFrames(std::uint64_t start, std::uint64_t count, std::vector<float>& out);
     [[nodiscard]] bool recheckIndex(std::uint64_t idx0) const; // fence(acquire) → 复测 == idx0
 
 private:
@@ -56,10 +57,22 @@ private:
         return buffer_.get() + (frameIdx % capacityFrames_) * chCount_;
     }
 
+public:
+    // R-70：测试注入接缝——非负时，recheckIndex 视作"索引已变化"强制复测失败，
+    // 用于确定性地驱动降级路径（三次失败 → readWindow 返回 ok=false）。仅测试宏下存在。
+#ifdef GAYOSPACE_TESTING
+    void testSetForceRecheckFailure(bool on) noexcept { forceRecheckFailure_ = on; }
+#endif
+
+private:
+
     std::size_t chCount_;
     std::uint64_t capacityFrames_;
     std::unique_ptr<float[]> buffer_;
     std::atomic<std::uint64_t> frameIndex_{0};
+#ifdef GAYOSPACE_TESTING
+    bool forceRecheckFailure_ = false; // R-70 测试接缝（仅测试构建）
+#endif
 };
 
 } // namespace gayospace::pipeline

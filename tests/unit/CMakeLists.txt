@@ -8,9 +8,12 @@ add_executable(gayospace-tests-core
     test_serial_channel.cpp
     test_qserial_transport.cpp
     test_spsc_ring.cpp
+    test_channel_store.cpp
     FakeTransport.h
 )
 target_link_libraries(gayospace-tests-core PRIVATE gayospace_core Catch2::Catch2WithMain)
+# R-70/R-71：测试注入接缝（core 的 testInject*/testSet* 钩子）——库与测试同宏编译；CI 正式发布不开
+target_compile_definitions(gayospace_core PUBLIC GAYOSPACE_TESTING)
 # 期望版本由构建系统注入，测试断言版本注入链路一致
 target_compile_definitions(gayospace-tests-core PRIVATE GAYO_EXPECTED_VERSION="${PROJECT_VERSION}")
 catch_discover_tests(gayospace-tests-core)

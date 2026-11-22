@@ -205,3 +205,43 @@ TEST_CASE("channel store edge cases: empty store, zero window, oversized window"
     REQUIRE(wb.ok);
     REQUIRE(wb.count == 3);
 }
+
+// R-70：降级路径确定性覆盖——测试注入接缝强制三次复测失败，
+// 断言 readWindow 返回 ok=false（跳过本渲染周期）且数据/索引状态未被破坏。
+TEST_CASE("channel store degrades deterministically after forced recheck failures (R-70)",
+    "[pipeline][store][r70]")
+{
+    ChannelStore store(2, 16);
+    for (std::uint64_t i = 0; i < 10; ++i)
+        store.writeFrame(frame(i, 2).data());
+
+    store.testSetForceRecheckFailure(true); // 复测恒失败
+    auto w = store.readWindow(4);
+    REQUIRE_FALSE(w.ok); // 设计内降级：不阻塞、不破坏状态
+    REQUIRE(w.count == 0);
+    REQUIRE(w.samples.empty());
+
+    store.testSetForceRecheckFailure(false); // 关闭注入后立即恢复
+    auto w2 = store.readWindow(4);
+    REQUIRE(w2.ok);
+    REQUIRE(w2.start == 6);
+    REQUIRE(w2.count == 4);
+    REQUIRE(store.frameIndex() == 10); // 索引未被降级路径触碰
+}
+
+// R-68：copyFrames 边界——out 尺寸不足时安全返回，不越界
+TEST_CASE("channel store copyFrames rejects undersized output (R-68)", "[pipeline][store][r68]")
+{
+    ChannelStore store(2, 16);
+    for (std::uint64_t i = 0; i < 4; ++i)
+        store.writeFrame(frame(i, 2).data());
+
+    std::vector<float> tooSmall(3); // 需要 4×2=8，只给 3
+    store.copyFrames(0, 4, tooSmall);
+    REQUIRE(tooSmall == std::vector<float>(3, 0.0f)); // 未写入任何数据
+
+    std::vector<float> ok(8);
+    store.copyFrames(0, 4, ok);
+    REQUIRE(ok[0] == 0.0f);
+    REQUIRE(ok[7] == static_cast<float>(3 * 10 + 1));
+}

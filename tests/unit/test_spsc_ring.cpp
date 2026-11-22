@@ -115,7 +115,7 @@ TEST_CASE("spsc writer overwrite decision loses race to reader beginBatch (R-59 
     REQUIRE(ring.write(a.data(), a.size()) == 16); // 满载，全未读
 
     // t1：读侧 beginBatch——owner 0→1，ceiling 发布
-    const auto batch = ring.beginBatch(8);
+    auto batch = ring.beginBatch(8);
     REQUIRE(batch.ok);
     REQUIRE(ring.readInFlight() == 8);
     REQUIRE(ring.ownerState() == SpscRingBuffer::Owner::ReaderCopy);
@@ -134,9 +134,8 @@ TEST_CASE("spsc writer overwrite decision loses race to reader beginBatch (R-59 
     REQUIRE(ring.copyBatch(batch, out.data(), out.size()) == 8);
     REQUIRE(bytesEqual(std::vector<std::byte>(a.begin(), a.begin() + 8), out));
 
-    // publish 后恢复空闲不变量
-    auto pub = batch;
-    ring.publish(pub);
+    // publish 后恢复空闲不变量（Batch move-only：直接发布原对象，R-71）
+    ring.publish(batch);
     REQUIRE(ring.readPos() == 8);
     REQUIRE(ring.readInFlight() == 8);
     REQUIRE(ring.ownerState() == SpscRingBuffer::Owner::Idle);
@@ -194,8 +193,7 @@ TEST_CASE("spsc readPos monotonicity under injected writer skip (R-64)", "[pipel
         REQUIRE(ring.readPos() == 0);   // 未被写侧推进
         REQUIRE(ring.droppedBytes() == 0);
 
-        auto pub = batch;
-        ring.publish(pub);
+        ring.publish(batch);
         REQUIRE(ring.readPos() == 5);
     }
 
@@ -210,8 +208,7 @@ TEST_CASE("spsc readPos monotonicity under injected writer skip (R-64)", "[pipel
         ring.testInjectReadPosAdvance(8);
         REQUIRE(ring.readPos() == 8);
 
-        auto pub = batch;
-        ring.publish(pub); // 普通 store 会把它写回 5（R-64 缺陷），CAS-max 保持 8
+        ring.publish(batch); // 普通 store 会把它写回 5（R-64 缺陷），CAS-max 保持 8
         REQUIRE(ring.readPos() == 8);
         REQUIRE(ring.readInFlight() == 8);
         REQUIRE(ring.ownerState() == SpscRingBuffer::Owner::Idle);
@@ -295,14 +292,13 @@ TEST_CASE("spsc edge cases: cancel, oversized write, empty read, dst cap", "[pip
         auto batch = ring.beginBatch(8);
         REQUIRE(batch.ok);
 
-        SpscRingBuffer::Batch bad; // ok=false
+        SpscRingBuffer::Batch bad; // ok=false（move-only 下默认构造仍可用）
         std::vector<std::byte> out(16);
         REQUIRE(ring.copyBatch(bad, out.data(), out.size()) == 0);
         REQUIRE(ring.copyBatch(batch, out.data(), 4) == 0); // dst 容量不足
 
-        auto published = batch;
-        ring.publish(published);
-        REQUIRE_FALSE(published.ok); // publish 将批次置无效，防止重复发布/重复拷贝
+        ring.publish(batch); // Batch move-only（R-71）：原对象直接发布
+        REQUIRE_FALSE(batch.ok); // publish 将批次置无效，防止重复发布/重复拷贝
     }
 }
 

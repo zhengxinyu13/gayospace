@@ -76,7 +76,11 @@ SpscRingBuffer::Batch SpscRingBuffer::beginBatch(std::size_t kMax)
                 return {};
             }
             readInFlight_.store(r + k, std::memory_order_release); // ceiling 发布（临界区内）
-            return Batch{r, static_cast<std::size_t>(k), true};
+            Batch batch; // move-only（R-71），不可聚合初始化
+            batch.startPos = r;
+            batch.size = static_cast<std::size_t>(k);
+            batch.ok = true;
+            return batch;
         }
         std::this_thread::yield(); // 写侧覆盖决策中：让步后重试
     }
@@ -125,10 +129,12 @@ void SpscRingBuffer::advanceReadPosCasMax(std::uint64_t target)
     }
 }
 
+#ifdef GAYOSPACE_TESTING
 void SpscRingBuffer::testInjectReadPosAdvance(std::uint64_t target)
 {
     advanceReadPosCasMax(target);
 }
+#endif
 
 void SpscRingBuffer::writeAt(std::uint64_t idx, const std::byte* src, std::size_t len)
 {

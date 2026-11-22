@@ -47,6 +47,9 @@ std::uint64_t ChannelStore::snapshotIndexLoad() const
 
 void ChannelStore::copyFrames(std::uint64_t start, std::uint64_t count, std::vector<float>& out)
 {
+    // R-68：边界检查——out 不足 count × chCount 时安全返回（公共 API 不留堆损坏 footgun）
+    if (out.size() < static_cast<std::size_t>(count) * chCount_)
+        return;
     for (std::uint64_t f = 0; f < count; ++f) {
         float* slot = frameSlot(start + f); // 环形取模寻址
         const std::size_t base = static_cast<std::size_t>(f) * chCount_;
@@ -62,6 +65,10 @@ bool ChannelStore::recheckIndex(std::uint64_t idx0) const
     // load-acquire 不能阻止其前的 relaxed 窗口读被后移）。
     // 矩阵 #13 评审检查点：真线程压测无法验证指令顺序（DoD 2.3），本 fence 勿删。
     std::atomic_thread_fence(std::memory_order_acquire);
+#ifdef GAYOSPACE_TESTING
+    if (forceRecheckFailure_) // R-70：测试注入——确定性驱动降级路径
+        return false;
+#endif
     return frameIndex_.load(std::memory_order_acquire) == idx0;
 }
 
