@@ -154,11 +154,17 @@ void FireWaterParser::handle_line(const std::vector<std::byte>& line)
     }
     // 无冒号：整行按数据宽容解析（TS §4.2）
 
+    // R-77：数据部分为空（如 "ch1:" / ":"）——无字段可解析，忽略整行不计错，
+    // 避免空字段产出 NaN 帧
+    if (data_begin >= line.size()) {
+        return;
+    }
+
     // 逗号切分 → 逐字段 strtof 宽容解析；失败字段置 NaN 并 parse_errors++，不丢整行（TS §4.2）
     ParseFrame f;
     f.t = std::chrono::steady_clock::now();
     f.frame_index = next_frame_index_;
-    std::uint8_t n = 0;
+    std::size_t n = 0;                       // R-76：改 size_t——uint8_t 会在 >256 字段时回绕
     std::size_t field_begin = data_begin;
     bool has_field = false;
     for (std::size_t i = data_begin; i <= line.size(); ++i) {
@@ -184,6 +190,13 @@ void FireWaterParser::handle_line(const std::vector<std::byte>& line)
         }
     }
     if (!has_field) {
+        return;
+    }
+
+    // R-76：字段数 > kMaxChannels（行上限 512 B 下最多 ~170 字段）——下游按 ch_count 读
+    // ParseFrame.ch 只有 32 个元素会越界 → 整行丢弃并计错；base_ch_count_ 永远 ≤ 32。
+    if (n > kMaxChannels) {
+        ++stats_.frames_bad;
         return;
     }
 

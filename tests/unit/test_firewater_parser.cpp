@@ -247,6 +247,48 @@ TEST_CASE("firewater oversized line is dropped and counted", "[protocol][firewat
     REQUIRE(p.stats().frames_bad == 1);      // 不重复计数
 }
 
+TEST_CASE("firewater prefix-only line is ignored without error", "[protocol][firewater]")
+{
+    // R-77："ch1:" 数据部分为空 → 忽略整行不计错，不产出 NaN 帧；
+    // 前后正常行（2 字段）不受影响，通道基准不紊乱。
+    FireWaterParser p;
+    p.feed(toBytes("1,2\nch1:\n3,4\n"));
+    const auto frames = drain(p);
+
+    REQUIRE(frames.size() == 2);
+    REQUIRE_THAT(frames[0].ch[0], WithinRel(1.0F));
+    REQUIRE_THAT(frames[1].ch[0], WithinRel(3.0F));
+    const auto st = p.stats();
+    REQUIRE(st.frames_ok == 2);
+    REQUIRE(st.frames_bad == 0);
+    REQUIRE(st.parse_errors == 0);
+}
+
+TEST_CASE("firewater row with more than 32 fields is rejected", "[protocol][firewater]")
+{
+    // R-76：>kMaxChannels 字段的行必须整行丢弃并计错（下游按 ch_count 读 ch[32] 会越界），
+    // base_ch_count_ 永不 > 32；后续正常行照常建立基准。
+    FireWaterParser p;
+    std::string row;
+    for (int i = 1; i <= 33; ++i) {
+        if (i > 1) {
+            row.push_back(',');
+        }
+        row += std::to_string(i);
+    }
+    row.push_back('\n');
+    p.feed(toBytes(row));                    // 33 字段
+
+    REQUIRE(drain(p).empty());
+    REQUIRE(p.stats().frames_bad == 1);
+
+    p.feed(toBytes("1,2\n"));                // 正常行照常解析
+    const auto frames = drain(p);
+    REQUIRE(frames.size() == 1);
+    REQUIRE(frames[0].ch_count == 2);
+    REQUIRE(p.stats().frames_bad == 1);      // 不重复计数
+}
+
 TEST_CASE("firewater reset clears channel baseline and stats", "[protocol][firewater]")
 {
     FireWaterParser p;

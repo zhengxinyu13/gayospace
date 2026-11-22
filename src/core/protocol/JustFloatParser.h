@@ -19,7 +19,8 @@ public:
     static constexpr std::uint64_t kDefaultAmbiguousLimit = 8;        // 连续歧义阈值（TS §4.1 默认 8）
     static constexpr std::size_t kMaxBufferFrames = 4;                // 缓冲上限（帧数）——评审 §2.2
 
-    // ch_count：字节流不含通道数，由用户配置（CLI --channels / GUI 配置项，默认 4，TS §4.0）
+    // ch_count：字节流不含通道数，由用户配置（CLI --channels / GUI 配置项，默认 4，TS §4.0）。
+    // R-76：ch_count == 0 或 > kMaxChannels 时 throw std::invalid_argument（不静默钳制）。
     explicit JustFloatParser(std::uint8_t ch_count = 4,
                              std::uint64_t ambiguous_limit = kDefaultAmbiguousLimit);
 

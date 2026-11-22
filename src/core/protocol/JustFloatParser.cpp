@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <bit>
+#include <stdexcept>
 
 namespace gayospace::protocol {
 
@@ -29,26 +30,31 @@ float leFloat(const std::byte* p)
 } // namespace
 
 JustFloatParser::JustFloatParser(std::uint8_t ch_count, std::uint64_t ambiguous_limit)
-    : ch_count_(ch_count == 0 ? 1 : ch_count),          // 防御：0 通道无意义
+    : ch_count_(ch_count),
       frame_len_(static_cast<std::size_t>(ch_count_) * 4 + kTailSize),
       capacity_(kMaxBufferFrames * frame_len_),
       ambiguous_limit_(ambiguous_limit == 0 ? kDefaultAmbiguousLimit : ambiguous_limit)
 {
+    // R-76：通道数上界必须校验——>kMaxChannels 会越界写 ParseFrame.ch（std::array<float,32>），
+    // 0 通道无意义。静默钳制会按错误帧长解析，比显式拒绝更危险 → throw。
+    if (ch_count_ == 0 || ch_count_ > kMaxChannels) {
+        throw std::invalid_argument("JustFloatParser: ch_count must be in [1, kMaxChannels]");
+    }
 }
 
 void JustFloatParser::feed(std::span<const std::byte> bytes)
 {
     buf_.insert(buf_.end(), bytes.begin(), bytes.end());
 
-    // 有界缓冲（评审 §2.2）：超限丢最旧。找不到帧尾时字节流会无限增长，垃圾流由上限兜底；
-    // 正常残帧（帧尾未到）不触发——缓冲上限 ≥ 4 帧长，远大于单帧等待窗口。
+    // R-75：先 scan 把能确认的帧全部产出并消费，再对"剩余无法成帧的尾巴"做容量截断——
+    // 若先截断后解析，一次 feed 超 4 帧时前面的完整帧会在解析前被当垃圾丢弃（P0 丢帧缺陷）。
+    scan();
     if (buf_.size() > capacity_) {
         const std::size_t drop = buf_.size() - capacity_;
         consume_front(drop, true);
         scan_off_ = scan_off_ > drop ? scan_off_ - drop : 0;
+        scan();                              // 截断后残余候选重新校验
     }
-
-    scan();
 }
 
 std::optional<ParseFrame> JustFloatParser::pop_frame()
@@ -110,11 +116,12 @@ void JustFloatParser::scan()
 
         const std::size_t tail_start = static_cast<std::size_t>(it - buf_.begin());
         const std::uint64_t tail_end_abs = consumed_abs_ + tail_start + kTailSize;
-        const std::uint64_t frame_start_abs = tail_end_abs - frame_len_;
 
-        if (frame_start_abs < consumed_abs_) {
-            // 负载不全：该帧头不在缓冲内（流开头无前置数据 / 已随前面的确认被消费），
-            // 永远无法重建 → 跳过该候选，继续找后面的候选（它们不受影响）。
+        // 负载不全：帧头不在缓冲内（流开头不足一帧 / 已随前面的确认被消费）。
+        // 注意 uint64 下溢：tail_end_abs < frame_len_ 时 frame_start_abs 会回绕成巨大值，
+        // 必须先判 tail_end_abs >= frame_len_ 再做减法，否则假候选会绕过本检查被"确认"
+        // 并用下溢的 payload_start 调 consume_front（UB）。
+        if (tail_end_abs < frame_len_ || tail_end_abs - frame_len_ < consumed_abs_) {
             if (first_incomplete == kNoIncomplete) {
                 first_incomplete = tail_start;
             }
@@ -142,8 +149,10 @@ void JustFloatParser::scan()
             last_tail_abs_ = tail_end_abs;
             ambiguous_streak_ = 0;
 
-            // 消费到帧尾结束
-            consume_front(tail_start + kTailSize, false);
+            // R-78：帧头之前的垃圾字节计入 bytes_dropped_sync（TS：重同步丢弃字节口径），
+            // 正常流该值为 0；帧负载本身不计入。
+            consume_front(payload_start, true);
+            consume_front(frame_len_, false);
             scan_off_ = 0;
             search_from = 0;
             first_incomplete = kNoIncomplete;
