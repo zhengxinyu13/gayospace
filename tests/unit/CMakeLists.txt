@@ -9,6 +9,8 @@ add_executable(gayospace-tests-core
     test_qserial_transport.cpp
     test_spsc_ring.cpp
     test_channel_store.cpp
+    test_justfloat_parser.cpp
+    test_firewater_parser.cpp
     FakeTransport.h
 )
 target_link_libraries(gayospace-tests-core PRIVATE gayospace_core Catch2::Catch2WithMain)

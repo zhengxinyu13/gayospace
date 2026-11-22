@@ -12,6 +12,12 @@ add_library(gayospace_core STATIC
     pipeline/SpscRingBuffer.h
     pipeline/ChannelStore.cpp
     pipeline/ChannelStore.h
+    protocol/IProtocolParser.h
+    protocol/ProtocolTypes.h
+    protocol/JustFloatParser.cpp
+    protocol/JustFloatParser.h
+    protocol/FireWaterParser.cpp
+    protocol/FireWaterParser.h
 )
 target_include_directories(gayospace_core
     PUBLIC  ${CMAKE_CURRENT_SOURCE_DIR}
