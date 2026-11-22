@@ -160,6 +160,19 @@ void FireWaterParser::handle_line(const std::vector<std::byte>& line)
         return;
     }
 
+    // R-82（第 19 轮评审）：先判字段数上界再解析——已丢弃行（>kMaxChannels 字段）的坏字段
+    // 不参与 parse_errors 计数；通道数基准永远 ≤ 32。
+    std::size_t field_count = 1;
+    for (std::size_t i = data_begin; i < line.size(); ++i) {
+        if (std::to_integer<unsigned char>(line[i]) == ',') {
+            ++field_count;
+        }
+    }
+    if (field_count > kMaxChannels) {
+        ++stats_.frames_bad;
+        return;
+    }
+
     // 逗号切分 → 逐字段 strtof 宽容解析；失败字段置 NaN 并 parse_errors++，不丢整行（TS §4.2）
     ParseFrame f;
     f.t = std::chrono::steady_clock::now();
@@ -193,14 +206,8 @@ void FireWaterParser::handle_line(const std::vector<std::byte>& line)
         return;
     }
 
-    // R-76：字段数 > kMaxChannels（行上限 512 B 下最多 ~170 字段）——下游按 ch_count 读
-    // ParseFrame.ch 只有 32 个元素会越界 → 整行丢弃并计错；base_ch_count_ 永远 ≤ 32。
-    if (n > kMaxChannels) {
-        ++stats_.frames_bad;
-        return;
-    }
-
     // 通道数以首行为基准（TS §3.3）；后续行字段数变化计错误，不产出
+    // （字段数上界已在解析前由 R-82 预检排除，此处 n ≤ kMaxChannels 恒成立）
     if (!base_ch_count_.has_value()) {
         base_ch_count_ = static_cast<std::uint8_t>(n);
     }

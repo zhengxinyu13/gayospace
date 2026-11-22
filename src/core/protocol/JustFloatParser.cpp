@@ -6,6 +6,10 @@
 #include <bit>
 #include <stdexcept>
 
+// R-83（第 19 轮评审，挂账 nit）：确认帧时 consume_front 两次 erase 前端为 O(n)，
+// 批量 100 帧（3.6 kB）实测无问题；36 kB/s 下不构成瓶颈。将来引入 1 MB 级大块批量
+// feed 时需换环形读偏移消除 O(n²)——见评审记录，暂不实现。
+
 namespace gayospace::protocol {
 
 namespace {
