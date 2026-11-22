@@ -5,6 +5,10 @@
 
 ## [未发布]
 
+### 协议引擎首批合并（PR #9；批准人：Grayson，日期 2026-11-22）
+
+- 2026-11-22 【合并】feature/protocol-parsers → main 经 PR #9 合入（merge d93d60a）；**main CI 全绿（run https://github.com/zhengxinyu13/gayospace/actions/runs/45039970540）**——协议引擎首批落地：`IProtocolParser` 接口（TS §4.0）+ `kMaxChannels=32` 共享头 + JustFloatParser（帧距对齐重同步状态机、有界缓冲 4×帧长、feed 先解析后截断）+ FireWaterParser（行缓冲 512 B 上限、strtof 前缀判定、字段数上界）；测试向量先行（commit1 接口+全量向量，commit2 实现），ctest **82**（81 Catch2 + 1 Qt），`src/core/protocol` 覆盖率 97.44%（阈值 80%，195 行）。经三轮评审：第 18 轮 R-75（P0 批量 feed 丢帧）/R-76（P1 通道数上界）/R-77/R-78 + uint64 下溢 UB 修复，第 19 轮 R-80（TS-SW v1.4 同步）/R-81/R-82/R-83，第 20 轮终审批准合并。挂账：R-67（GUI 前）、R-72（发布打包前）、R-73/R-74（nit）；R-83 性能注记已在代码注释。
+
 ### 协议引擎 TS 同步修订（PR #9 内；批准人：Grayson，日期 2026-11-22）
 
 - 2026-11-22 【修订】TS-SW v1.3 → v1.4（第 19 轮评审 R-80）：§4.0 `ParseStats.bytes_dropped_sync` 口径定稿（仅 JustFloat：缓冲超限丢最旧 + 确认帧帧前垃圾；FireWater 恒 0）、JustFloat 构造契约（`N ∉ [1,32]` 抛 `std::invalid_argument`，调用方先行校验）；§4.1 重同步第 3 条改**锚点重置重扫**（废止 v1.3"半字节步进"文案，等价相位重试）、负载不全候选跳过不计错、首个可校验候选直接确认、有界缓冲 4×帧长且 feed **先解析后截断**（R-75 P0）、uint64 下溢防御注记；§4.2 计数归属与上界清单（行上限 512 B、>32 字段整行拒 R-82、空行/空数据行忽略、坏字段 parse_errors、通道基准恒 ≤32）。代码随同修复 R-82（先判上界再解析）、R-83 挂账注释（consume_front O(n)，36 kB/s 不构成瓶颈）。
