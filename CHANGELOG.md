@@ -5,6 +5,10 @@
 
 ## [未发布]
 
+### 管道胶水层合并（PR #11；批准人：Grayson，日期 2026-11-23）
+
+- 2026-11-23 【合并】feature/pipeline-glue → main 经 PR #11 合入（merge cea33da）；**main CI 全绿（run https://github.com/zhengxinyu13/gayospace/actions/runs/45179511663）**——胶水层落地："串口 → SpscRingBuffer → 解析器 → ChannelStore"接成可测数据链：`PipelineStats`（缓存式原子快照，CLI §6 stats 数据源）、`PipelinePump`（pumpOnce/drain 显式步进、失败路径统一 cancelBatch + BatchGuard RAII（R-91）、ch_count 变化重建 store、switchParser 按 TS §4.4 字面序 + stop-then-call 约束（R-87））、`SerialWorker`（transport unique_ptr 所有权（R-84 修法 A）、bytesReceived → ring.write → 持锁 notify（R-90））、`PipelineThread` 薄封装（50ms 兜底超时、停止后末次 drain）；`SpscRingBuffer::clear()` API 扩展（TS §3.2 契约条目 + Debug assert owner Idle，R-88）。测试先行（commit1 测试、commit2 实现），ctest **97**（96 Catch2 + 1 Qt），含并发压测（1 pump + 1 高频 stats，store 反复重建压 UAF 路径）。经四轮评审：第 22 轮 R-84（P1 transport 泄漏）/R-85（P1 stats 跨线程 UAF）+ R-86~R-92（rx_bytes 口径、switch 时序、clear 契约、通道数上界、持锁唤醒、异常安全），第 23 轮 R-93/R-94（TS 标题 v1.5、rxBytes→ringBytes 防呆改名），第 24 轮残留两处旧名，第 25 轮闭环批准。TS-SW 升 v1.5（§3.2 clear 契约、§6 `rx_bytes = ringBytes + rxDropped`）。挂账：R-95（store() 裸引用 UAF，GUI 前）、R-96/R-97/R-98（stop 持锁唤醒、README 滞后、onBytes 冗余判空）、R-72（发布打包前）、R-67/R-73/R-74。
+
 ### 协议引擎首批合并（PR #9；批准人：Grayson，日期 2026-11-22）
 
 - 2026-11-22 【合并】feature/protocol-parsers → main 经 PR #9 合入（merge d93d60a）；**main CI 全绿（run https://github.com/zhengxinyu13/gayospace/actions/runs/45039970540）**——协议引擎首批落地：`IProtocolParser` 接口（TS §4.0）+ `kMaxChannels=32` 共享头 + JustFloatParser（帧距对齐重同步状态机、有界缓冲 4×帧长、feed 先解析后截断）+ FireWaterParser（行缓冲 512 B 上限、strtof 前缀判定、字段数上界）；测试向量先行（commit1 接口+全量向量，commit2 实现），ctest **82**（81 Catch2 + 1 Qt），`src/core/protocol` 覆盖率 97.44%（阈值 80%，195 行）。经三轮评审：第 18 轮 R-75（P0 批量 feed 丢帧）/R-76（P1 通道数上界）/R-77/R-78 + uint64 下溢 UB 修复，第 19 轮 R-80（TS-SW v1.4 同步）/R-81/R-82/R-83，第 20 轮终审批准合并。挂账：R-67（GUI 前）、R-72（发布打包前）、R-73/R-74（nit）；R-83 性能注记已在代码注释。
