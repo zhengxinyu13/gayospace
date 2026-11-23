@@ -57,6 +57,13 @@ public:
     void publish(Batch& batch);     // CAS-max readPos → R+k；readInFlight = readPos；owner → Idle
     void cancelBatch(Batch& batch); // 放弃批次：readInFlight = readPos；owner → Idle
 
+    // 协议切换/重配时清空缓冲（TS-SW §3.2 契约条目 / §4.4 时序；R-88）：
+    // ① 非并发安全方法，调用前提 = 写侧与读侧均暂停 **且 owner 为 Idle**（无批次在飞），
+    //    Debug 构建断言；② readPos/readInFlight 追平 writePos（读写序号对齐）；
+    // ③ 未读字节计入 droppedBytes（丢"旧"口径，与满载丢"新"的 rxDropped 区分）。
+    // 胶水层 PipelinePump::switchParser 在 TS §4.4 暂停时序内使用。
+    void clear();
+
     // ---- 可观测状态（不变量检查、测试与诊断）----
     [[nodiscard]] std::uint64_t readPos() const noexcept { return readPos_.load(std::memory_order_acquire); }
     [[nodiscard]] std::uint64_t writePos() const noexcept { return writePos_.load(std::memory_order_acquire); }

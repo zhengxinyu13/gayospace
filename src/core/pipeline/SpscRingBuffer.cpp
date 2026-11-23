@@ -4,6 +4,8 @@
 #include <cstring>
 #include <thread>
 
+#include <QtGlobal> // Q_ASSERT
+
 namespace gayospace::pipeline {
 namespace {
 // 读侧有界自旋预算（R-65.3）：写侧仅在覆盖决策瞬间持有 owner，让步重试后仍失败则跳过本批次
@@ -116,6 +118,19 @@ void SpscRingBuffer::cancelBatch(Batch& batch)
     batch.ok = false;
     readInFlight_.store(readPos_.load(std::memory_order_acquire), std::memory_order_release);
     owner_.store(static_cast<std::uint32_t>(Owner::Idle), std::memory_order_release);
+}
+
+// 非并发安全方法（契约见头文件；TS-SW §3.2/R-88）：仅在切换时序下（写读两侧均暂停）
+// 调用。R 归 W 并把未读字节计入 droppedBytes，使后续 parse stats 的 dropped 口径连续。
+void SpscRingBuffer::clear()
+{
+    // R-88：Debug 断言 owner 为 Idle——批次在飞时调用属于未定义用法，尽早暴露
+    Q_ASSERT(ownerState() == Owner::Idle);
+    const auto w = writePos_.load(std::memory_order_relaxed);
+    const auto r = readPos_.load(std::memory_order_relaxed);
+    droppedBytes_.fetch_add(w - r, std::memory_order_relaxed);
+    readInFlight_.store(w, std::memory_order_relaxed);
+    readPos_.store(w, std::memory_order_relaxed); // 单线程时刻，relaxed 足够
 }
 
 void SpscRingBuffer::advanceReadPosCasMax(std::uint64_t target)

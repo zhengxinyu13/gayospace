@@ -18,6 +18,13 @@ add_library(gayospace_core STATIC
     protocol/JustFloatParser.h
     protocol/FireWaterParser.cpp
     protocol/FireWaterParser.h
+    applogic/PipelineStats.h
+    applogic/PipelinePump.cpp
+    applogic/PipelinePump.h
+    applogic/SerialWorker.cpp
+    applogic/SerialWorker.h
+    applogic/PipelineThread.cpp
+    applogic/PipelineThread.h
 )
 target_include_directories(gayospace_core
     PUBLIC  ${CMAKE_CURRENT_SOURCE_DIR}

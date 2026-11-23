@@ -1,7 +1,7 @@
-# GayoSpace 软件技术方案（TS-SW）v1.4（定稿）
+# GayoSpace 软件技术方案（TS-SW）v1.5（定稿）
 
-> 状态：**定稿（共识版 v1.4）**——v1.1~v1.4 变更：v1.4 协议引擎实现取舍与计数口径同步（§4.0/§4.1/§4.2，第 18/19 轮评审 R-80）；v1.1~v1.3 管道并发契约定稿（§3.2/§3.3/§6），论证与测试矩阵见 docs/ts-pipeline-concurrency.md；随该文档 PR 合入并经 Grayson 批准后生效
-> 日期：2026-11-16（v1.1：2026-11-19；v1.2：2026-11-20 第 11 轮；v1.3：2026-11-20 第 12 轮；v1.4：2026-11-22 第 19 轮）
+> 状态：**定稿（共识版 v1.5）**——v1.5 变更：§3.2 增 `clear()` 契约条目（R-88）、§6 增 `rx_bytes` 组合口径（R-86），第 22 轮评审随 PR #11 修订；v1.4 协议引擎实现取舍与计数口径同步（§4.0/§4.1/§4.2，第 18/19 轮评审 R-80）；v1.1~v1.3 管道并发契约定稿（§3.2/§3.3/§6），论证与测试矩阵见 docs/ts-pipeline-concurrency.md；随该文档 PR 合入并经 Grayson 批准后生效
+> 日期：2026-11-16（v1.1：2026-11-19；v1.2：2026-11-20 第 11 轮；v1.3：2026-11-20 第 12 轮；v1.4：2026-11-22 第 19 轮；v1.5：2026-11-23 第 22 轮）
 > 上游依据：docs/PRD.md（基础共识版 v1.0）、docs/DoD.md（定稿 v1.1）
 > 本项目无硬件，无 TS-HW / HSI；本 TS 是唯一的"怎么做"事实来源。
 > v0.2 变更：依据外部评审（DeepSeek，2026-11-16，Grayson 提交）补 6 处阻塞缺口（发送路径、失效模式 4 行、ChannelStore 数据模型、IProtocolParser 接口、协议热切换跨线程同步、串口重连策略）与全部重要/细节项；章节重排。
@@ -80,7 +80,8 @@ tests/
 - **读侧协议（R-59 第 11 轮定稿：owner 串行化 + ceiling）**：
   - `beginBatch(k_max)`（R-65.1：请求上限 k_max，实际 k 临界区内确定）：CAS `owner` 0→1（acq_rel；失败有界自旋+让步后重试，仍失败跳过本批次——写侧仅在覆盖决策瞬间持有）；临界区内 acquire 读 `writePos` 得 `k = min(k_max, writePos − readPos)`（不得拷贝未发布区间，k==0 立即释放 owner 返回空）；`readInFlight = readPos + k`（release）；
   - 拷贝 `[readPos, readPos + k)`；k 在 beginBatch 时确定（有界）且拷贝期间恒定；
-  - `publish`：CAS-max 把 `readPos` 推进到 `readPos + k`（release；临界区内写侧无法推进，CAS-max 为纵深防御）；`clear`：`readInFlight = readPos`（release）→ `owner = 0`（release）。
+  - `publish`：CAS-max 把 `readPos` 推进到 `readPos + k`（release；临界区内写侧无法推进，CAS-max 为纵深防御）；`cancelBatch`（放弃批次）：`readInFlight = readPos`（release）→ `owner = 0`（release）。
+  - **`clear()`（R-88 新增契约条目，2026-11-23）**：协议切换/重配时清空缓冲——`readPos`/`readInFlight` 追平 `writePos`（读写序号对齐），未读字节计入 `droppedBytes`（丢"旧"口径）。**非并发安全方法**：调用前提 = 写侧与读侧均暂停（TS §4.4 暂停时序内）**且 `owner` 为 Idle**（无批次在飞，Debug 构建断言）；调用时刻为单线程，序号 store 无内存序要求。胶水层 `PipelinePump::switchParser` 是唯一调用点。
   - （v0.9/第 10 轮反例已废止：仅靠 ceiling 发布无法消除"写侧读到空闲后再覆盖"的 TOCTOU 窗口。）
 - **满载策略（R-34 两分支，分支判定 = owner CAS 结果）**：
   - 写侧 CAS owner 0→2 **成功**（读侧空闲，此刻 `readInFlight == readPos` 由临界区保证）：推进 `readPos` 跳过最老未读区间再覆盖，跳过量计 `droppedBytes`（保留 PRD"丢最旧"），同步 `readInFlight = readPos`、`owner = 0`（release）；
@@ -274,6 +275,7 @@ function reset() { ... }
 ```
 
 - `dropped_bytes` = 写侧满载跳过的未读字节（丢旧）；`rx_dropped` = 写侧在读侧拷贝期间（owner CAS 获取失败）丢弃的新到字节（R-34/R-59 定稿，语义对照见 docs/ts-pipeline-concurrency.md §2.2）；`parse_errors` = 解析错误帧数。三者独立计数。
+- **`rx_bytes` 口径（R-86，2026-11-23 定）**：= `ring.writePos() + ring.rxDropped()`，即**串口收到的总字节**（接纳入 ring + 满载被拒）。CLI/GUI 不得各自解释——组合规则以本节为准，`PipelineStats.ringBytes` 只含 writePos 部分，组装点在 CLI。
 
 - `t_ms` = round(frame_index × 1000 / rate)（R-06 时间基准语义，见 3.4）；`--rate` 缺省时该字段改名为 `t_index`（原始帧序号）。
 
