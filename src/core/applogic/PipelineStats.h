@@ -2,8 +2,8 @@
 // R-85（第 22 轮评审）：非"原子读"——parser/store 计数为缓存式原子快照，由 pump 线程
 // 在 pumpOnce/switchParser 结尾刷新；stats() 跨线程只读原子，不解引用 parser_/store_。
 // 弱一致口径（各计数单调递增，快照间允许微小偏差）。
-// R-86：rxBytes 口径 = ring.writePos（被接纳入 ring 的字节）；串口收到的总接收量
-// = rxBytes + rxDropped（TS §6 已写明组合规则，CLI/GUI 不得各自解释）。
+// R-86：rx_bytes 口径 = ring.writePos + rxDropped（串口收到的总字节）——TS §6 已写明
+// 组合规则；本结构只给原始分量，组装点在 CLI（字段名 ringBytes 防止调用者少加一项）。
 #pragma once
 
 #include <cstddef>
@@ -12,7 +12,8 @@
 namespace gayospace::applogic {
 
 struct PipelineStats {
-    std::uint64_t rxBytes = 0;       // ring.writePos：累计写入环形缓冲的字节（CLI rx_bytes）
+    std::uint64_t ringBytes = 0;     // ring.writePos：接纳入 ring 的字节（R-94 改名防呆：
+                                     // CLI rx_bytes = ringBytes + rxDropped，见 TS §6）
     std::uint64_t droppedBytes = 0;  // ring.droppedBytes：满载丢最旧（CLI dropped_bytes）
     std::uint64_t rxDropped = 0;     // ring.rxDropped：读侧在飞期间丢弃的新到字节（CLI rx_dropped）
     std::uint64_t framesOk = 0;      // parser stats.frames_ok

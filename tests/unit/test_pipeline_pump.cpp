@@ -149,7 +149,7 @@ TEST_CASE("pump switches parser and clears ring", "[applogic][pump]")
     const auto f = justFrame({9, 8});
     REQUIRE(ring.write(f.data(), f.size()) == f.size());
     REQUIRE(pump.pumpOnce() == 1);
-    REQUIRE(pump.stats().rxBytes == f.size());
+    REQUIRE(pump.stats().ringBytes == f.size());
 
     // 切到 FireWater（时序：上层已暂停写入与解析线程）
     pump.switchParser(std::make_unique<protocol::FireWaterParser>(), 3);
@@ -161,7 +161,7 @@ TEST_CASE("pump switches parser and clears ring", "[applogic][pump]")
     const auto line = toBytes("0.25,0.5,0.75\n");
     REQUIRE(ring.write(line.data(), line.size()) == line.size());
     REQUIRE(pump.pumpOnce() == 1);
-    REQUIRE(pump.stats().rxBytes == f.size() + line.size());
+    REQUIRE(pump.stats().ringBytes == f.size() + line.size());
     const auto v = firstFrame(pump, 3);
     REQUIRE_THAT(v[0], WithinRel(0.25F));
     REQUIRE_THAT(v[2], WithinRel(0.75F));
@@ -198,7 +198,7 @@ TEST_CASE("pump transmits ring overflow stats", "[applogic][pump]")
     REQUIRE(written < flood.size()); // 有丢弃
 
     pump.drain(); // 丢弃后的可解析内容不确定（截断帧），只验 stats 口径
-    REQUIRE(pump.stats().rxBytes == written);
+    REQUIRE(pump.stats().ringBytes == written);
     // 满载丢"新"计 rxDropped（ring 写侧口径）；droppedBytes 仅丢"旧"（clear/切换）时增加
     REQUIRE(pump.stats().rxDropped == flood.size() - written);
 }

@@ -144,7 +144,7 @@ PipelineStats PipelinePump::stats() const
     // R-85：跨线程只读原子缓存 + ring 自身原子计数，不解引用 parser_/store_。
     // 弱一致口径（各计数单调递增，快照间允许微小偏差，对 CLI/GUI stats 足够）。
     PipelineStats s;
-    s.rxBytes = ring_.writePos();
+    s.ringBytes = ring_.writePos();
     s.droppedBytes = ring_.droppedBytes();
     s.rxDropped = ring_.rxDropped();
     s.framesOk = cachedFramesOk_.load(std::memory_order_relaxed);
