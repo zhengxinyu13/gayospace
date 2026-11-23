@@ -118,6 +118,17 @@ void SpscRingBuffer::cancelBatch(Batch& batch)
     owner_.store(static_cast<std::uint32_t>(Owner::Idle), std::memory_order_release);
 }
 
+// 非并发安全方法（见头文件注释）：仅在切换时序下（写读两侧均暂停）调用。
+// R 归 W 并把未读字节计入 droppedBytes，使后续 parse stats 的 dropped 口径连续。
+void SpscRingBuffer::clear()
+{
+    const auto w = writePos_.load(std::memory_order_relaxed);
+    const auto r = readPos_.load(std::memory_order_relaxed);
+    droppedBytes_.fetch_add(w - r, std::memory_order_relaxed);
+    readInFlight_.store(w, std::memory_order_relaxed);
+    readPos_.store(w, std::memory_order_relaxed); // 单线程时刻，relaxed 足够
+}
+
 void SpscRingBuffer::advanceReadPosCasMax(std::uint64_t target)
 {
     std::uint64_t cur = readPos_.load(std::memory_order_acquire);
