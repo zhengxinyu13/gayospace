@@ -1,7 +1,7 @@
 # Changelog
 
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循 [SemVer](https://semver.org/lang/zh-CN/)。
-本项目尚无代码发布，以下为文档阶段变更记录（对应 AGENTS.md 第十二节变更管理）。
+本项目尚未发布正式版本（无 tag）；以下记录含文档与代码合并，以【合并】标记代码合入（对应 AGENTS.md 第十二节变更管理）。
 
 ## [未发布]
 
