@@ -275,7 +275,7 @@ function reset() { ... }
 ```
 
 - `dropped_bytes` = 写侧满载跳过的未读字节（丢旧）；`rx_dropped` = 写侧在读侧拷贝期间（owner CAS 获取失败）丢弃的新到字节（R-34/R-59 定稿，语义对照见 docs/ts-pipeline-concurrency.md §2.2）；`parse_errors` = 解析错误帧数。三者独立计数。
-- **`rx_bytes` 口径（R-86，2026-11-23 定）**：= `ring.writePos() + ring.rxDropped()`，即**串口收到的总字节**（接纳入 ring + 满载被拒）。CLI/GUI 不得各自解释——组合规则以本节为准，`PipelineStats.rxBytes` 只含 writePos 部分，组装点在 CLI。
+- **`rx_bytes` 口径（R-86，2026-11-23 定）**：= `ring.writePos() + ring.rxDropped()`，即**串口收到的总字节**（接纳入 ring + 满载被拒）。CLI/GUI 不得各自解释——组合规则以本节为准，`PipelineStats.ringBytes` 只含 writePos 部分，组装点在 CLI。
 
 - `t_ms` = round(frame_index × 1000 / rate)（R-06 时间基准语义，见 3.4）；`--rate` 缺省时该字段改名为 `t_index`（原始帧序号）。
 

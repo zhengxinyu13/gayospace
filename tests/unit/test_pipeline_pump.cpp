@@ -157,7 +157,7 @@ TEST_CASE("pump switches parser and clears ring", "[applogic][pump]")
     REQUIRE(pump.stats().chCount == 3);
     REQUIRE(pump.stats().storeRebuilds == 2); // 构造 1 次 + 切换重建 1 次
 
-    // 新协议正常解析；rxBytes 口径 = ring.writePos 累计（clear 只对齐读侧序号，不重置写侧）
+    // 新协议正常解析；ringBytes 口径 = ring.writePos 累计（clear 只对齐读侧序号，不重置写侧）
     const auto line = toBytes("0.25,0.5,0.75\n");
     REQUIRE(ring.write(line.data(), line.size()) == line.size());
     REQUIRE(pump.pumpOnce() == 1);
