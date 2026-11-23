@@ -24,7 +24,7 @@ See [docs/PRD.md](docs/PRD.md) for the full product requirements, including the 
 
 ## Status
 
-v0.1 scaffold: build system, test framework (Catch2 v3 + Qt Test), CI and static gates are in place; PRD / DoD / TS-SW finalized. Business coding starts next.
+Core layer (v0.1, unreleased): four batches merged — serial I/O (params, reconnect policy, `SerialChannel` auto-reconnect), pipeline core (`SpscRingBuffer` + `ChannelStore`), protocol engine (`IProtocolParser` with JustFloat & FireWater parsers), and the glue layer (`PipelinePump` / `SerialWorker` / `PipelineThread`, 97 unit tests green). PRD / DoD / TS-SW finalized; CLI capture/send and the GUI waveform view are next.
 
 ## Build
 
@@ -82,7 +82,7 @@ GayoSpace 是一款带实时波形绘制的串口调试工具，使用 C++ / Qt6
 
 ## 当前状态
 
-v0.1 脚手架阶段：构建系统、测试框架（Catch2 v3 + Qt Test）、CI 与静态门禁已就位；PRD / DoD / TS-SW 已定稿，业务编码即将开始。
+核心层（v0.1，未发布）：四批代码已合入——串口层（参数校验、重连退避、`SerialChannel` 自动重连）、管道核心（`SpscRingBuffer` + `ChannelStore`）、协议引擎（`IProtocolParser` + JustFloat / FireWater 解析器）、胶水层（`PipelinePump` / `SerialWorker` / `PipelineThread`，97 项单元测试全绿）。PRD / DoD / TS-SW 已定稿；CLI capture/send 与 GUI 波形页为下一步。
 
 ## 构建
 
