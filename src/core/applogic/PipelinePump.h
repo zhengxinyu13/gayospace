@@ -8,6 +8,7 @@
 // 以保证任何失败路径都归还 owner。
 #pragma once
 
+#include <atomic>
 #include <cstdint>
 #include <memory>
 #include <vector>
@@ -44,6 +45,7 @@ public:
 
 private:
     void rebuildStore(std::uint8_t chCount);
+    void refreshCachedStats(); // 把 parser/store 计数刷进原子缓存（仅 pump 线程调用）
 
     pipeline::SpscRingBuffer& ring_;
     std::unique_ptr<protocol::IProtocolParser> parser_;
@@ -51,6 +53,17 @@ private:
     std::uint64_t storeCapacityFrames_;
     std::uint32_t storeRebuilds_ = 0;
     std::vector<std::byte> batchBuf_; // 批次拷贝缓冲（跨 pumpOnce 复用）
+
+    // R-85（第 22 轮评审）：stats() 可能被 CLI/GUI 线程并发调用——缓存式原子快照，
+    // stats() 只读这些原子 + ring 自身的原子计数，绝不解引用 parser_/store_
+    // （store_ 会被 rebuildStore 替换、parser stats 是普通结构，直接读会 data race/UAF）。
+    // 刷新点：pumpOnce 结尾与 switchParser 结尾（均在 pump 线程内）。
+    std::atomic<std::uint64_t> cachedFramesOk_{0};
+    std::atomic<std::uint64_t> cachedFramesBad_{0};
+    std::atomic<std::uint64_t> cachedParseErrors_{0};
+    std::atomic<std::uint64_t> cachedFrames_{0};
+    std::atomic<std::uint32_t> cachedChCount_{0};
+    std::atomic<std::uint32_t> cachedStoreRebuilds_{0};
 };
 
 } // namespace gayospace::applogic

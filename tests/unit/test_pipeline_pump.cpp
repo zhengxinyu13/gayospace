@@ -5,8 +5,11 @@
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers_floating_point.hpp>
 
+#include <atomic>
 #include <cstddef>
+#include <stdexcept>
 #include <string>
+#include <thread>
 #include <vector>
 
 #include "applogic/PipelinePump.h"
@@ -216,7 +219,7 @@ TEST_CASE("pump handles empty ring batch safely", "[applogic][pump]")
 
 TEST_CASE("ring clear aligns read to write and counts dropped", "[applogic][pipeline]")
 {
-    // ring.clear()（TS §4.4）：readPos 追平 writePos，未读字节计入 droppedBytes
+    // ring.clear()（TS §3.2/R-88）：readPos 追平 writePos，未读字节计入 droppedBytes
     pipeline::SpscRingBuffer ring(256);
     const auto data = justFrame({1});
     REQUIRE(ring.write(data.data(), data.size()) == data.size());
@@ -233,4 +236,55 @@ TEST_CASE("ring clear aligns read to write and counts dropped", "[applogic][pipe
     std::vector<std::byte> out(f2.size());
     REQUIRE(ring.copyBatch(batch, out.data(), out.size()) == f2.size());
     ring.publish(batch);
+}
+
+TEST_CASE("pump rejects out-of-range initial channel count", "[applogic][pump]")
+{
+    // R-89：initialChCount 上界校验（拒绝 >kMaxChannels，与 JustFloatParser R-76 同风格）
+    pipeline::SpscRingBuffer ring(256);
+    REQUIRE_THROWS_AS(
+        applogic::PipelinePump(ring, std::make_unique<protocol::FireWaterParser>(), 33, 64),
+        std::invalid_argument);
+    REQUIRE_THROWS_AS(
+        applogic::PipelinePump(ring, std::make_unique<protocol::FireWaterParser>(), 0, 64),
+        std::invalid_argument);
+}
+
+TEST_CASE("pump stats snapshot stays safe under concurrent reader", "[applogic][pump]")
+{
+    // R-85 验收：1 线程 pump + 1 线程高频 stats()，store 反复被 rebuildStore 替换——
+    // stats() 只读原子缓存，不崩、不 UAF。有限时长压测（确定性 join），无 flaky 风险。
+    // 通道数变化用 switchParser 驱动（FireWater 行内字段数变化只计 bad 不产出——TS §3.3）。
+    pipeline::SpscRingBuffer ring(4096);
+    applogic::PipelinePump pump(ring, std::make_unique<protocol::FireWaterParser>(), 3, 64);
+
+    std::atomic<bool> stopReader {false};
+    std::thread reader([&] {
+        while (!stopReader.load(std::memory_order_relaxed)) {
+            const auto s = pump.stats(); // 不得解引用 parser_/store_
+            static_cast<void>(s);
+        }
+    });
+
+    const auto wide = toBytes("1,2,3\n");
+    for (int i = 0; i < 100; ++i) {
+        REQUIRE(ring.write(wide.data(), wide.size()) == wide.size());
+        pump.pumpOnce();
+        if (i % 20 == 19) { // 每 20 帧交替重建 store（1↔3），替换 store_ 压 UAF 路径
+            pump.switchParser(std::make_unique<protocol::FireWaterParser>(),
+                (i % 40 == 19) ? 1 : 3);
+        }
+    }
+    pump.drain();
+    for (int i = 0; i < 3; ++i) {
+        REQUIRE(ring.write(wide.data(), wide.size()) == wide.size());
+    }
+    pump.drain();
+
+    stopReader.store(true, std::memory_order_relaxed);
+    reader.join();
+
+    const auto s = pump.stats();
+    REQUIRE(s.frames == 3);   // 最后一次切换后写入的 3 帧
+    REQUIRE(s.chCount == 3);  // 最终列布局
 }

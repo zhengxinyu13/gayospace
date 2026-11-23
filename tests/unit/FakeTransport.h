@@ -13,6 +13,9 @@ namespace gayospace::serial::test {
 class FakeTransport final : public ISerialTransport {
     Q_OBJECT
 public:
+    // R-84（第 22 轮评审）：析构计数——验证 SerialWorker 释放 transport 所有权
+    inline static int s_destroyed = 0;
+    ~FakeTransport() override { ++s_destroyed; }
     explicit FakeTransport(QObject* parent = nullptr) : ISerialTransport(parent) {}
 
     bool open(const SerialParams& params) override
