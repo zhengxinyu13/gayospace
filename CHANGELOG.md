@@ -7,7 +7,7 @@
 
 ### 第 26 轮评审修复闭环（PR #13；批准人：Grayson，日期 2026-11-23）
 
-- 2026-11-23 【修订】fix/review-cleanup-r96-99 → main 经 PR #13 合入（merge 3dfff8f）；**main CI 全绿（run https://github.com/zhengxinyu13/gayospace/actions/runs/45189338794）**——第 25/26 轮评审四项收尾：R-96（P2，`PipelineThread::stop()` 改持锁置位 + wakeAll，与 R-90 写侧口径统一，消除"复测后、wait 前"丢唤醒窗口，50ms 兜底保留）、R-97（P2，README 中英 Status 段更新为四批核心已合入、CLI/GUI 为下一步）、R-98（nit，`SerialWorker::onBytes` 删冗余判空与未用变量）、R-99（nit，CHANGELOG 头部断言改中性表述）。本地 ctest 97/97；CI run 45188147086（PR #13）。R-96/R-97/R-98/R-99 关闭归档。
+- 2026-11-23 【合并】fix/review-cleanup-r96-99 → main 经 PR #13 合入（merge 3dfff8f）；**main CI 全绿（run https://github.com/zhengxinyu13/gayospace/actions/runs/45189338794）**——第 25/26 轮评审四项收尾：R-96（P2，`PipelineThread::stop()` 改持锁置位 + wakeAll，与 R-90 写侧口径统一，消除"复测后、wait 前"丢唤醒窗口，50ms 兜底保留）、R-97（P2，README 中英 Status 段更新为四批核心已合入、CLI/GUI 为下一步）、R-98（nit，`SerialWorker::onBytes` 删冗余判空与未用变量）、R-99（nit，CHANGELOG 头部断言改中性表述）。本地 ctest 97/97；CI run 45188147086（PR #13）。R-96/R-97/R-98/R-99 关闭归档。
 
 ### 管道胶水层合并（PR #11；批准人：Grayson，日期 2026-11-23）
 
