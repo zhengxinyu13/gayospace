@@ -6,6 +6,8 @@ add_library(gayospace-cli-core STATIC
     CliOptions.cpp
     CaptureWriter.h
     CaptureWriter.cpp
+    CaptureSession.h
+    CaptureSession.cpp
 )
 # include 根 = src/：与 core 的 "serial/…" 引用风格一致（#include "cli/CliOptions.h"）
 target_include_directories(gayospace-cli-core

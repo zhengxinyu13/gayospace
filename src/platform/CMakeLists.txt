@@ -6,6 +6,8 @@
 add_library(gayospace_platform STATIC
     FileOps.h
     FileOps.cpp
+    Interrupt.h
+    Interrupt.cpp
 )
 target_compile_features(gayospace_platform PUBLIC cxx_std_20)
 # include 根 = src/：与 core/cli 的 "platform/FileOps.h" 引用风格一致

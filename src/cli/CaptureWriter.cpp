@@ -44,6 +44,12 @@ CaptureWriter::CaptureWriter(CaptureMeta meta, QString outPath)
 {
 }
 
+CaptureWriter::~CaptureWriter()
+{
+    // finish 成功路径 file_ 已置空；未终结路径在此关闭临时文件句柄（不尝试替换目标）
+    delete file_;
+}
+
 QString CaptureWriter::timeFieldName() const
 {
     return meta_.hasRate ? QStringLiteral("t_ms") : QStringLiteral("t_index");

@@ -33,6 +33,12 @@ struct CaptureMeta {
 class CaptureWriter {
 public:
     CaptureWriter(CaptureMeta meta, QString outPath);
+    // RAII：未 finish 即析构（如 IoError 路径 / 中途异常）时关闭并泄漏清理临时句柄，
+    // 防止 fixture remove_all 遇占用文件抛 filesystem_error → terminate
+    ~CaptureWriter();
+
+    CaptureWriter(const CaptureWriter&) = delete;
+    CaptureWriter& operator=(const CaptureWriter&) = delete;
 
     // 写 meta（JSON）/首行（CSV）到临时文件。失败（临时文件打不开）→ false + error。
     [[nodiscard]] bool begin(QString& error);
