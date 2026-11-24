@@ -5,6 +5,10 @@
 
 ## [未发布]
 
+### CLI 批次①参数模型合并（PR #15；批准人：Grayson，日期 2026-11-24）
+
+- 2026-11-24 【合并】feature/cli-options → main 经 PR #15 合入（merge 0bc5718）；**main CI 全绿（run https://github.com/zhengxinyu13/gayospace/actions/runs/45359747785）**——CLI 批次①落地（第 29 轮评审 §2 点头开工，R-102 拍板：切法稿"脚本/文件发送"系笔误，send 收敛契约内 `--data/--hex/--repeat/--interval` 不加需求）：新增 `gayospace-cli-core` 静态库（exe 与测试共用）——`CliOptions` 参数模型（R-104 全集：capture `--port/--baud/--protocol/--script/--channels/--rate/--duration|--samples/--out/--hex-echo` + send `--data/--hex/--repeat/--interval` + list-ports）、`CliExitCode` 六码枚举（TS §6：0/2/3/4/5/130）、退出码 2 边界全测（`--duration|--samples` 二选一互斥、`--out` 必选、`--duration ≤3600s`、`--channels ∈[1,32]`、`--port/--baud` 走 `SerialParams::validationErrors()` 校验面）。测试先行（commit1 测试、commit2 实现），ctest **109**（97→109，+12 CLI 用例，新目录 `tests/cli/`）。经两轮评审：第 30 轮 R-108（P0：tests/cli 无条件接入 core-only 构建致 Linux job 失败——加 `if(NOT GAYOSPACE_CORE_ONLY)` 守卫，两 job ctest 数字 96/109 印证守卫生效）/R-109（nit：--port 缺失重复报错），第 31 轮复评通过。main.cpp 接线随批次②（capture 执行链，已并入 R-103 原子写 / R-105 退出码 0·4·5 / R-106 t_index）。挂账：R-72（发布打包前）、R-95（GUI 前）、R-67/R-73/R-74。
+
 ### 第 26 轮评审修复闭环（PR #13；批准人：Grayson，日期 2026-11-23）
 
 - 2026-11-23 【合并】fix/review-cleanup-r96-99 → main 经 PR #13 合入（merge 3dfff8f）；**main CI 全绿（run https://github.com/zhengxinyu13/gayospace/actions/runs/45189338794）**——第 25/26 轮评审四项收尾：R-96（P2，`PipelineThread::stop()` 改持锁置位 + wakeAll，与 R-90 写侧口径统一，消除"复测后、wait 前"丢唤醒窗口，50ms 兜底保留）、R-97（P2，README 中英 Status 段更新为四批核心已合入、CLI/GUI 为下一步）、R-98（nit，`SerialWorker::onBytes` 删冗余判空与未用变量）、R-99（nit，CHANGELOG 头部断言改中性表述）。本地 ctest 97/97；CI run 45188147086（PR #13）。R-96/R-97/R-98/R-99 关闭归档。
