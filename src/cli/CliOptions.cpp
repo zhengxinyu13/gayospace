@@ -176,7 +176,8 @@ CliOptions CliOptions::parse(const QStringList& args, QStringList& errors, CliEx
     }
 
     // ---- 共用校验（R-104：--port/--baud 属 SerialParams 校验面）----
-    requireNonEmpty(errors, QStringLiteral("--port"), o.port);
+    // R-109（第 30 轮评审）：--port 缺失只走 serial 校验面报错一次，
+    // 不再 requireNonEmpty 重复报"缺少必选选项 --port"。
     const auto sp = o.toSerialParams();
     for (const QString& e : sp.validationErrors()) {
         addError(errors, e);
