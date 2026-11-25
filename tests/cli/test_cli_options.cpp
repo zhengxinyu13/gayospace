@@ -191,6 +191,21 @@ TEST_CASE("send minimal and validation", "[cli][options]")
     REQUIRE_PARSE_ARG_ERROR(); // --interval <0
 }
 
+TEST_CASE("send repeat upper bound is 100000", "[cli][options]")
+{
+    // R-129：契约上界 100000（TS §6.1 第 3 条实现约束，批次③收紧解析器谓词）
+    QStringList args{"send", "--port", "COM3", "--data", "01", "--repeat", "100001"};
+    REQUIRE_PARSE_ARG_ERROR(); // 越界上界 → 退出码 2
+
+    args = QStringList{"send", "--port", "COM3", "--data", "01", "--repeat", "100000"};
+    REQUIRE_PARSE_OK(opts); // 上界本身放行
+
+    QStringList errs;
+    auto exit = Code::ArgError;
+    const auto o = cli::CliOptions::parse(args, errs, exit);
+    REQUIRE(o.repeat == 100000);
+}
+
 TEST_CASE("port and baud belong to serial params validation surface", "[cli][options]")
 {
     // R-104：--port/--baud 组装 SerialParams 后走 serial 层校验，失败 → 退出码 2
