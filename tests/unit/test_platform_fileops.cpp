@@ -5,6 +5,7 @@
 
 #include <QString>
 
+#include <chrono>
 #include <filesystem>
 #include <fstream>
 

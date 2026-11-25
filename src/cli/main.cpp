@@ -23,6 +23,7 @@
 #include "cli/CaptureSession.h"
 #include "cli/CaptureWriter.h"
 #include "cli/CliOptions.h"
+#include "cli/PortLister.h"
 #include "gayospace_version.h"
 #include "pipeline/SpscRingBuffer.h"
 #include "platform/Interrupt.h"
@@ -197,10 +198,9 @@ int main(int argc, char* argv[])
 
     switch (opts.command) {
     case gayospace::cli::CliCommand::ListPorts:
-        for (const auto& info : QSerialPortInfo::availablePorts()) {
-            std::cout << info.portName().toStdString()
-                      << "\t" << info.description().toStdString() << "\n";
-        }
+        // R-114：TS §6:257 契约要求 JSON 输出（供 Agent/脚本探测），TSV 已废
+        std::cout << gayospace::cli::portsToJson(QSerialPortInfo::availablePorts()).toStdString()
+                  << "\n";
         return 0;
     case gayospace::cli::CliCommand::Send:
         // 批次③实现（R-102：契约内 --data/--hex/--repeat/--interval）

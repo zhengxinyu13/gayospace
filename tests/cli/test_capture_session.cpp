@@ -9,6 +9,7 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 
+#include <chrono>
 #include <filesystem>
 #include <optional>
 #include <string>
