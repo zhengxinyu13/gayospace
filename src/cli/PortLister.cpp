@@ -15,14 +15,15 @@ QString portsToJson(const QList<QSerialPortInfo>& ports)
         o.insert(QStringLiteral("device"), info.portName());
         o.insert(QStringLiteral("system_location"), info.systemLocation());
         o.insert(QStringLiteral("description"), info.description());
-        // 硬件 ID：VID/PID hex（无效=缺省省略）；serial_number 无效同样省略
-        if (info.vendorIdentifier() != -1) {
+        // 硬件 ID：VID/PID hex（无效=缺省省略）；serial_number 无效同样省略。
+        // R-118：quint16 恒 != -1，必须用 hasVendorIdentifier/hasProductIdentifier 判有效性
+        if (info.hasVendorIdentifier()) {
             o.insert(QStringLiteral("vendor_id"),
-                QString::number(static_cast<ushort>(info.vendorIdentifier()), 16));
+                QString::number(info.vendorIdentifier(), 16));
         }
-        if (info.productIdentifier() != -1) {
+        if (info.hasProductIdentifier()) {
             o.insert(QStringLiteral("product_id"),
-                QString::number(static_cast<ushort>(info.productIdentifier()), 16));
+                QString::number(info.productIdentifier(), 16));
         }
         if (!info.serialNumber().isEmpty()) {
             o.insert(QStringLiteral("serial_number"), info.serialNumber());
