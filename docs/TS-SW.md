@@ -278,6 +278,7 @@ function reset() { ... }
 - **`rx_bytes` 口径（R-86，2026-11-23 定）**：= `ring.writePos() + ring.rxDropped()`，即**串口收到的总字节**（接纳入 ring + 满载被拒）。CLI/GUI 不得各自解释——组合规则以本节为准，`PipelineStats.ringBytes` 只含 writePos 部分，组装点在 CLI。
 
 - `t_ms` = round(frame_index × 1000 / rate)（R-06 时间基准语义，见 3.4）；`--rate` 缺省时该字段改名为 `t_index`（原始帧序号）。
+- **JSON 通道值 NaN/±Inf 输出 `null`**（R-116，2026-11-24 Grayson 批准）：JSON 标准不允许 NaN/Inf 字面量，输出 `null` 与 CSV 空字段语义对齐；调用方解析时需区分 `null`（无效样本）与数值。
 
 - CSV：首行 `t_ms,ch0,ch1,...`；`--rate` 缺省时首列改名 `t_index`（与 JSON meta 同规则，R-40 统一口径），NaN 输出空字段。
 - **退出码边界**（评审 #9）：`0` 成功（**个别帧 parse_error 是统计项，计入 `stats.parse_errors`，不影响退出码 0**）；`2` 参数错误；`3` 串口错误（打不开 / 中途断开且重连失败 / **端口被 GUI 或其他程序占用**）；`4` 协议致命错误（**仅两类：脚本抛出未捕获异常、脚本执行超时被强制中断**）；`5` IO 错误（落盘失败）；`130` 用户中断（Ctrl+C，已收数据照常落盘后退出）。Agent 调用方判定：退出码 0 且 parse_errors 少量 → 可信数据；退出码 4 → 脚本问题，重试无效；退出码 3 → 环境/占用问题，可换端口重试。
