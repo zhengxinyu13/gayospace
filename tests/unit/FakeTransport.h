@@ -56,7 +56,14 @@ public:
         if (m_writeFails) {
             return -1;
         }
+        // 零进展注入（R-142 看门狗用例）：恒返 0、不产生待确认字节
+        if (m_writeReturnsZero) {
+            return 0;
+        }
         m_lastWritten = data;
+        // 写确认改为手动推进（批次③）：payload 记入 pending，pump(n) 才发 bytesWritten——
+        // 无事件循环环境下测试可精确控制"写了但系统没确认"的窗口
+        m_pendingWrittenBytes += data.size();
         return data.size();
     }
 
@@ -85,6 +92,23 @@ public:
     }
 
     void simulateBytes(const QByteArray& data) { emit bytesReceived(data); }
+
+    // ---- 写推进面（批次③ SendQueue 排空用例）----
+    bool m_writeReturnsZero = false;    // writeBytes 恒返 0（零进展注入，R-142）
+    qint64 m_pendingWrittenBytes = 0;   // 已写但未确认的字节
+    qint64 m_bytesWrittenTotal = 0;     // 累计已确认字节
+
+    // 手动推进：确认 n 字节已被系统收走 → 发 bytesWritten(n)（n 超出 pending 时截断）
+    void pump(qint64 n)
+    {
+        n = qMin(n, m_pendingWrittenBytes);
+        if (n <= 0) {
+            return;
+        }
+        m_pendingWrittenBytes -= n;
+        m_bytesWrittenTotal += n;
+        emit bytesWritten(n);
+    }
 };
 
 } // namespace gayospace::serial::test
