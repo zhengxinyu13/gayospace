@@ -46,6 +46,9 @@ public:
         }
         m_open = false;
         ++m_closeCount;
+        // R-168：对齐真实 QSerialPort::close——丢弃未确认数据且不再为它们发
+        // bytesWritten（保留 m_bytesWrittenTotal 历史累计，供"断线前确已确认 N 字节"断言）
+        m_pendingWrittenBytes = 0;
         emit closed();
     }
 
@@ -60,11 +63,16 @@ public:
         if (m_writeReturnsZero) {
             return 0;
         }
-        m_lastWritten = data;
+        // 部分写注入（R-166）：-1 = 全收；>=0 = 本次最多接受 n 字节
+        // （配套断言：连续两次入参应为 payload 与 payload.mid(accept)，且
+        //   m_bytesWrittenTotal + m_pendingWrittenBytes == payload.size()——区分续写与重发）
+        const qint64 accept = (m_writeAcceptLimit >= 0)
+            ? qMin<qint64>(data.size(), m_writeAcceptLimit) : data.size();
+        m_lastWritten = data.left(accept);
         // 写确认改为手动推进（批次③）：payload 记入 pending，pump(n) 才发 bytesWritten——
         // 无事件循环环境下测试可精确控制"写了但系统没确认"的窗口
-        m_pendingWrittenBytes += data.size();
-        return data.size();
+        m_pendingWrittenBytes += accept;
+        return accept;
     }
 
     // ---- 测试注入面 ----
@@ -81,6 +89,8 @@ public:
     void simulateDisconnect(SerialErrorKind kind = SerialErrorKind::ResourceLost)
     {
         m_open = false;
+        // R-168：断线丢弃未确认数据（同 close()；m_bytesWrittenTotal 历史累计保留）
+        m_pendingWrittenBytes = 0;
         emit errorOccurred(kind, userMessage(kind));
         emit closed();
     }
@@ -95,10 +105,13 @@ public:
 
     // ---- 写推进面（批次③ SendQueue 排空用例）----
     bool m_writeReturnsZero = false;    // writeBytes 恒返 0（零进展注入，R-142）
+    qint64 m_writeAcceptLimit = -1;     // 部分写注入（R-166）：-1 = 全收；>=0 = 每次最多接受 n 字节
     qint64 m_pendingWrittenBytes = 0;   // 已写但未确认的字节
     qint64 m_bytesWrittenTotal = 0;     // 累计已确认字节
 
-    // 手动推进：确认 n 字节已被系统收走 → 发 bytesWritten(n)（n 超出 pending 时截断）
+    // 手动推进：确认 n 字节已被系统收走 → 发 bytesWritten(n)（n 超出 pending 时截断）。
+    // R-172：本函数是同步 emit——SendQueue 槽在本调用栈内重入执行，与真实 Qt 的
+    // 事件循环派发次序不同；写"回调内再次入队"类用例时注意这一差异，防假通过。
     void pump(qint64 n)
     {
         n = qMin(n, m_pendingWrittenBytes);
