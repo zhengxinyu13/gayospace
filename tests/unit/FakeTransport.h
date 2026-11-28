@@ -3,6 +3,7 @@
 #pragma once
 
 #include <QByteArray>
+#include <QList>
 
 #include "serial/ISerialTransport.h"
 #include "serial/SerialError.h"
@@ -41,11 +42,16 @@ public:
 
     void close() override
     {
+        // R-185：!m_open 时早退（closed() 不重发）——断线后再 close() 是 no-op，
+        // 用例不得期待 closeCount + 1（与真实 QSerialPort::close() 语义一致）
         if (!m_open) {
             return;
         }
         m_open = false;
         ++m_closeCount;
+        // R-168：对齐真实 QSerialPort::close——丢弃未确认数据且不再为它们发
+        // bytesWritten（保留 m_bytesWrittenTotal 历史累计，供"断线前确已确认 N 字节"断言）
+        m_pendingWrittenBytes = 0;
         emit closed();
     }
 
@@ -53,11 +59,29 @@ public:
 
     qint64 writeBytes(const QByteArray& data) override
     {
+        // R-177：对齐 QIODevice::write——未打开返回 -1 且不产生 pending
+        // （"断线后仍在写"必须在 fake 层暴露，真实传输此路径必失败）
+        if (!m_open) {
+            return -1;
+        }
         if (m_writeFails) {
             return -1;
         }
-        m_lastWritten = data;
-        return data.size();
+        // 零进展注入（R-142 看门狗用例）：恒返 0、不产生待确认字节
+        if (m_writeReturnsZero) {
+            return 0;
+        }
+        // 部分写注入（R-166）：-1 = 全收；>=0 = 本次最多接受 n 字节
+        // TODO(batch3): 由 SendQueue 部分写用例消费 —— 见 TS §6.1 第 4 条 / R-166（R-183）
+        const qint64 accept = (m_writeAcceptLimit >= 0)
+            ? qMin<qint64>(data.size(), m_writeAcceptLimit) : data.size();
+        m_writeCalls.append(data);
+        m_bytesAcceptedTotal += accept;
+        m_lastWritten = data.left(accept);
+        // 写确认改为手动推进（批次③）：payload 记入 pending，pump(n) 才发 bytesWritten——
+        // 无事件循环环境下测试可精确控制"写了但系统没确认"的窗口
+        m_pendingWrittenBytes += accept;
+        return accept;
     }
 
     // ---- 测试注入面 ----
@@ -74,17 +98,55 @@ public:
     void simulateDisconnect(SerialErrorKind kind = SerialErrorKind::ResourceLost)
     {
         m_open = false;
+        // R-168：断线丢弃未确认数据（同 close()；m_bytesWrittenTotal 历史累计保留）
+        m_pendingWrittenBytes = 0;
         emit errorOccurred(kind, userMessage(kind));
         emit closed();
     }
 
-    // 仅注入错误、端口保持打开（模拟 Timeout/Write 等瞬态错误——R-54 场景）
+    // 仅注入错误、端口保持打开（模拟 Timeout/Write 等瞬态错误——R-54 场景）。
+    // R-185：勿用它测"断线清队列"——瞬态错误不丢缓冲、不发 closed()；
+    // 断线清队列凭 closed() 信号（§8.1），测它请用 simulateDisconnect()/close()
     void simulateError(SerialErrorKind kind)
     {
         emit errorOccurred(kind, userMessage(kind));
     }
 
     void simulateBytes(const QByteArray& data) { emit bytesReceived(data); }
+
+    // ---- 写推进面（批次③ SendQueue 排空用例）----
+    bool m_writeReturnsZero = false;    // writeBytes 恒返 0（零进展注入，R-142）
+    qint64 m_writeAcceptLimit = -1;     // 部分写注入（R-166）：-1 = 全收；>=0 = 每次最多接受 n 字节
+    qint64 m_pendingWrittenBytes = 0;   // 已写但未确认的字节
+    qint64 m_bytesWrittenTotal = 0;     // 累计已确认字节
+    QList<QByteArray> m_writeCalls;     // 逐次入参（R-178：续写/重发判据——第二次入参必须
+                                        //   是 payload.mid(accept)，不能只留最后一片）
+    qint64 m_bytesAcceptedTotal = 0;    // 累计被接受字节 = Σ writeBytes 返回值（R-178：
+                                        //   "不丢不重"断言 = == payload.size()。
+                                        //   勿用 m_bytesWrittenTotal + m_pendingWrittenBytes
+                                        //   当总量断言——那是已接受总量，属循环论证）
+
+    // 手动推进：确认 n 字节已被系统收走 → 发 bytesWritten(n)（n 超出 pending 时截断）。
+    // R-172：本函数是同步 emit——SendQueue 槽在本调用栈内重入执行，与真实 Qt 的
+    // 事件循环派发次序不同；写"回调内再次入队"类用例时注意这一差异，防假通过。
+    void pump(qint64 n)
+    {
+        n = qMin(n, m_pendingWrittenBytes);
+        if (n <= 0) {
+            return;
+        }
+        m_pendingWrittenBytes -= n;
+        m_bytesWrittenTotal += n;
+        emit bytesWritten(n);
+    }
+
+    // 跳过截断直接注入陈旧确认（R-176 用例：归零后迟到的 bytesWritten 必须被
+    // 写路径丢弃/clamp 到 0——pump() 的截断恰好吃掉这个场景，故另开入口）
+    void pumpRaw(qint64 n)
+    {
+        m_bytesWrittenTotal += n;
+        emit bytesWritten(n);
+    }
 };
 
 } // namespace gayospace::serial::test
