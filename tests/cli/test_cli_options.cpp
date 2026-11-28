@@ -206,6 +206,39 @@ TEST_CASE("send repeat upper bound is 100000", "[cli][options]")
     REQUIRE(o.repeat == 100000);
 }
 
+TEST_CASE("option value starting with double dash is rejected", "[cli][options]")
+{
+    // R-141：--data --hex 若吞值 → 按字面发 "--hex" 6 字节且 --hex 丢失 = 静默错发
+    // （§6.1 第 1 条要防的场景）；值以 -- 开头一律退出 2，不用吞值兜底
+    QStringList args{"send", "--port", "COM3", "--data", "--hex"};
+    REQUIRE_PARSE_ARG_ERROR();
+
+    QStringList errs;
+    auto exit = Code::Ok;
+    cli::CliOptions::parse(args, errs, exit);
+    REQUIRE(errs.join(QLatin1Char(';')).contains(QStringLiteral("不能以 -- 开头")));
+
+    // 共用 takeValue：capture 路径同样受保护（--out 吞下一个 flag）
+    args = QStringList{"capture", "--port", "COM3", "--out", "--protocol", "justfloat",
+        "--channels", "8", "--duration", "5"};
+    REQUIRE_PARSE_ARG_ERROR();
+}
+
+TEST_CASE("negative option values are not mistaken as double dash", "[cli][options]")
+{
+    // R-153：takeValue 的 startsWith("--") 若误写成 startsWith("-")，
+    // -1 会被当 flag 拒——断言 -1 走的是数值校验路径
+    QStringList args{"send", "--port", "COM3", "--baud", "-1", "--data", "01"};
+    REQUIRE_PARSE_ARG_ERROR();
+
+    QStringList errs;
+    auto exit = Code::Ok;
+    cli::CliOptions::parse(args, errs, exit);
+    const auto joined = errs.join(QLatin1Char(';'));
+    REQUIRE(joined.contains(QStringLiteral("--baud 的值须为正整数")));
+    REQUIRE_FALSE(joined.contains(QStringLiteral("不能以 -- 开头")));
+}
+
 TEST_CASE("port and baud belong to serial params validation surface", "[cli][options]")
 {
     // R-104：--port/--baud 组装 SerialParams 后走 serial 层校验，失败 → 退出码 2

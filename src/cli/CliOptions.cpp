@@ -24,14 +24,21 @@ void addError(QStringList& errors, const QString& message)
     errors.append(message);
 }
 
-// 消费 "--flag value"。value 缺失时记错误并返回 false（调用方不再重复报错）。
+// 消费 "--flag value"。value 缺失或以 "--" 开头时记错误并返回 false（R-141：
+// 吞掉下一个 flag 会导致静默错发——如 --data --hex 把 flag 当数据；负数值如 -1
+// 不受影响，仅拦双横线）。调用方不再重复报错。
 bool takeValue(const QStringList& args, int& i, const QString& flag, QString& out, QStringList& errors)
 {
     if (i + 1 >= args.size()) {
         addError(errors, QStringLiteral("选项 %1 缺少参数值").arg(flag));
         return false;
     }
-    out = args.at(++i);
+    const QString value = args.at(++i);
+    if (value.startsWith(QStringLiteral("--"))) {
+        addError(errors, QStringLiteral("选项 %1 的值不能以 -- 开头：%2").arg(flag, value));
+        return false;
+    }
+    out = value;
     return true;
 }
 

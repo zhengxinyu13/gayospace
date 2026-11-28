@@ -23,6 +23,7 @@ void requireError(const QString& data, bool hex, const QString& errorPart)
     INFO("data=[" << data.toStdString() << "] error=[" << r.error.toStdString() << "]");
     REQUIRE_FALSE(r.ok());
     REQUIRE(r.error.contains(errorPart));
+    REQUIRE(r.bytes.isEmpty()); // R-144/R-151：失败不得交付半截 payload
 }
 } // namespace
 

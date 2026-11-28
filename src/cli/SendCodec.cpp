@@ -16,13 +16,12 @@ bool isHexDigit(QChar c)
 
 int hexValue(QChar c)
 {
-    if (c <= QLatin1Char('9')) {
-        return c.unicode() - QLatin1Char('0').unicode();
-    }
-    if (c >= QLatin1Char('a')) {
-        return c.unicode() - QLatin1Char('a').unicode() + 10;
-    }
-    return c.unicode() - QLatin1Char('A').unicode() + 10;
+    // R-152：正确性来自实现（查表、非 hex 返 -1），不依赖断言——Q_ASSERT 在
+    // QT_NO_DEBUG（release）下编译为空；Q_ASSERT 留作 debug 双保险（R-146）
+    static const QString alphabet = QStringLiteral("0123456789abcdef");
+    int idx = alphabet.indexOf(c.toLower());
+    Q_ASSERT(idx >= 0);
+    return idx;
 }
 
 } // namespace
@@ -46,6 +45,9 @@ SendCodecResult encodeSendPayload(const QString& data, bool hex)
         r.error = QStringLiteral("--hex 内容为空（仅空白/逗号）");
         return r;
     }
+    // R-144：失败分支 bytes 必须为空——"校验先于开端口"（R-128）要求调用方
+    // 不可能拿到半截 payload 拿去发；用局部缓冲组装，成功才交付
+    QByteArray out;
     for (const QString& token : tokens) {
         QString body = token;
         if (body.startsWith(QStringLiteral("0x"), Qt::CaseInsensitive)) {
@@ -63,9 +65,10 @@ SendCodecResult encodeSendPayload(const QString& data, bool hex)
             return r;
         }
         for (int i = 0; i < body.size(); i += 2) {
-            r.bytes.append(static_cast<char>(hexValue(body.at(i)) * 16 + hexValue(body.at(i + 1))));
+            out.append(static_cast<char>(hexValue(body.at(i)) * 16 + hexValue(body.at(i + 1))));
         }
     }
+    r.bytes = out;
     return r;
 }
 
