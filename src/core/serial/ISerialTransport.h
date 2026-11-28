@@ -34,6 +34,9 @@ signals:
     void errorOccurred(gayospace::serial::SerialErrorKind kind, const QString& message);
     // 收到原始字节（顺序 = 设备到达顺序）。
     void bytesReceived(const QByteArray& data);
+    // 已写字节被系统/驱动确认收走（转发 QSerialPort::bytesWritten；语义见 Qt 文档：
+    // payload 已交给 OS，不保证设备侧收到）。SendQueue 的排空判定依据（批次③）。
+    void bytesWritten(qint64 bytes);
     // 连接已断开（传输层视角：拔线/设备消失/被抢占）。
     void closed();
 };

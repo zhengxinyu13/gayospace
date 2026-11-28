@@ -26,6 +26,11 @@ QSerialTransport::QSerialTransport(QObject* parent)
         emit bytesReceived(m_port->readAll());
     });
 
+    // 批次③：写确认逐块转发（SendQueue 排空判定依据，TS §6.1 第 5 条）
+    connect(m_port, &QSerialPort::bytesWritten, this, [this](qint64 bytes) {
+        emit bytesWritten(bytes);
+    });
+
     // QSerialPort 的错误枚举 → 领域错误；NoError 不上报（避免噪声）。
     // R-52：open() 期间 Qt 会自发 errorOccurred——置位标记供 open 失败分支去重，
     // 避免"Qt 发一次 + open 手动补发一次"导致错误信号翻倍。
