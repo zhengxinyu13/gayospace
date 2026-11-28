@@ -3,6 +3,7 @@
 #pragma once
 
 #include <QByteArray>
+#include <QList>
 
 #include "serial/ISerialTransport.h"
 #include "serial/SerialError.h"
@@ -41,6 +42,8 @@ public:
 
     void close() override
     {
+        // R-185：!m_open 时早退（closed() 不重发）——断线后再 close() 是 no-op，
+        // 用例不得期待 closeCount + 1（与真实 QSerialPort::close() 语义一致）
         if (!m_open) {
             return;
         }
@@ -56,6 +59,11 @@ public:
 
     qint64 writeBytes(const QByteArray& data) override
     {
+        // R-177：对齐 QIODevice::write——未打开返回 -1 且不产生 pending
+        // （"断线后仍在写"必须在 fake 层暴露，真实传输此路径必失败）
+        if (!m_open) {
+            return -1;
+        }
         if (m_writeFails) {
             return -1;
         }
@@ -64,10 +72,11 @@ public:
             return 0;
         }
         // 部分写注入（R-166）：-1 = 全收；>=0 = 本次最多接受 n 字节
-        // （配套断言：连续两次入参应为 payload 与 payload.mid(accept)，且
-        //   m_bytesWrittenTotal + m_pendingWrittenBytes == payload.size()——区分续写与重发）
+        // TODO(batch3): 由 SendQueue 部分写用例消费 —— 见 TS §6.1 第 4 条 / R-166（R-183）
         const qint64 accept = (m_writeAcceptLimit >= 0)
             ? qMin<qint64>(data.size(), m_writeAcceptLimit) : data.size();
+        m_writeCalls.append(data);
+        m_bytesAcceptedTotal += accept;
         m_lastWritten = data.left(accept);
         // 写确认改为手动推进（批次③）：payload 记入 pending，pump(n) 才发 bytesWritten——
         // 无事件循环环境下测试可精确控制"写了但系统没确认"的窗口
@@ -95,7 +104,9 @@ public:
         emit closed();
     }
 
-    // 仅注入错误、端口保持打开（模拟 Timeout/Write 等瞬态错误——R-54 场景）
+    // 仅注入错误、端口保持打开（模拟 Timeout/Write 等瞬态错误——R-54 场景）。
+    // R-185：勿用它测"断线清队列"——瞬态错误不丢缓冲、不发 closed()；
+    // 断线清队列凭 closed() 信号（§8.1），测它请用 simulateDisconnect()/close()
     void simulateError(SerialErrorKind kind)
     {
         emit errorOccurred(kind, userMessage(kind));
@@ -108,6 +119,12 @@ public:
     qint64 m_writeAcceptLimit = -1;     // 部分写注入（R-166）：-1 = 全收；>=0 = 每次最多接受 n 字节
     qint64 m_pendingWrittenBytes = 0;   // 已写但未确认的字节
     qint64 m_bytesWrittenTotal = 0;     // 累计已确认字节
+    QList<QByteArray> m_writeCalls;     // 逐次入参（R-178：续写/重发判据——第二次入参必须
+                                        //   是 payload.mid(accept)，不能只留最后一片）
+    qint64 m_bytesAcceptedTotal = 0;    // 累计被接受字节 = Σ writeBytes 返回值（R-178：
+                                        //   "不丢不重"断言 = == payload.size()。
+                                        //   勿用 m_bytesWrittenTotal + m_pendingWrittenBytes
+                                        //   当总量断言——那是已接受总量，属循环论证）
 
     // 手动推进：确认 n 字节已被系统收走 → 发 bytesWritten(n)（n 超出 pending 时截断）。
     // R-172：本函数是同步 emit——SendQueue 槽在本调用栈内重入执行，与真实 Qt 的
@@ -119,6 +136,14 @@ public:
             return;
         }
         m_pendingWrittenBytes -= n;
+        m_bytesWrittenTotal += n;
+        emit bytesWritten(n);
+    }
+
+    // 跳过截断直接注入陈旧确认（R-176 用例：归零后迟到的 bytesWritten 必须被
+    // 写路径丢弃/clamp 到 0——pump() 的截断恰好吃掉这个场景，故另开入口）
+    void pumpRaw(qint64 n)
+    {
         m_bytesWrittenTotal += n;
         emit bytesWritten(n);
     }
