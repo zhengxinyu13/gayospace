@@ -17,6 +17,7 @@ struct SendCodecResult {
 // §6.1 第 1 条：!hex 时 data 按字面 UTF-8 原样（含空白），不做隐式 hex 识别。
 // §6.1 第 2 条：hex 时接受 [0-9A-Fa-f]，空白/逗号作分隔，"0x"/"0X" 前缀可带（仅
 // token 开头），每字节须 2 位（奇数位/纯前缀/空内容拒绝）。
+// R-144：失败时 bytes 保证为空（不存在"已解析部分"），调用方须先查 ok()。
 [[nodiscard]] SendCodecResult encodeSendPayload(const QString& data, bool hex);
 
 } // namespace gayospace::cli
