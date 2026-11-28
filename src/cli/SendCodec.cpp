@@ -16,16 +16,12 @@ bool isHexDigit(QChar c)
 
 int hexValue(QChar c)
 {
-    // R-146：正确性依赖调用前 isHexDigit 全量校验——断言钉死该前置约定，
-    // 防将来复用时对非 hex 字符静默返回负值
-    Q_ASSERT(isHexDigit(c));
-    if (c <= QLatin1Char('9')) {
-        return c.unicode() - QLatin1Char('0').unicode();
-    }
-    if (c >= QLatin1Char('a')) {
-        return c.unicode() - QLatin1Char('a').unicode() + 10;
-    }
-    return c.unicode() - QLatin1Char('A').unicode() + 10;
+    // R-152：正确性来自实现（查表、非 hex 返 -1），不依赖断言——Q_ASSERT 在
+    // QT_NO_DEBUG（release）下编译为空；Q_ASSERT 留作 debug 双保险（R-146）
+    static const QString alphabet = QStringLiteral("0123456789abcdef");
+    int idx = alphabet.indexOf(c.toLower());
+    Q_ASSERT(idx >= 0);
+    return idx;
 }
 
 } // namespace
