@@ -160,8 +160,9 @@ CliOptions CliOptions::parse(const QStringList& args, QStringList& errors, CliEx
             o.hex = true;
         } else if (!isCapture && flag == QStringLiteral("--repeat")) {
             int n = 0;
-            if (parseNumber(args, i, flag, n, [](int v) { return v >= 1; },
-                    QStringLiteral("--repeat 的值须为正整数：%1"), errors)) {
+            // R-129：上界 100000（TS §6.1 第 3 条，批次③收紧——批次① 谓词仅有下限）
+            if (parseNumber(args, i, flag, n, [](int v) { return v >= 1 && v <= 100000; },
+                    QStringLiteral("--repeat 的值须为 1~100000：%1"), errors)) {
                 o.repeat = n;
             }
         } else if (!isCapture && flag == QStringLiteral("--interval")) {

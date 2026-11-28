@@ -4,6 +4,8 @@
 add_library(gayospace-cli-core STATIC
     CliOptions.h
     CliOptions.cpp
+    SendCodec.h
+    SendCodec.cpp
     CaptureWriter.h
     CaptureWriter.cpp
     CaptureSession.h
