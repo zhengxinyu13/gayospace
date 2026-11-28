@@ -174,8 +174,10 @@ CliOptions CliOptions::parse(const QStringList& args, QStringList& errors, CliEx
             }
         } else if (!isCapture && flag == QStringLiteral("--interval")) {
             qint64 ms = 0;
-            if (parseNumber(args, i, flag, ms, [](qint64 v) { return v >= 0; },
-                    QStringLiteral("--interval 的值须为非负整数：%1"), errors)) {
+            // R-157：上界 86400000（24h 防呆——qint64 收、QTimer::setInterval(int) 用，
+            // 无上界则窄化为负、定时器静默不启动；对照 --duration 3600s 先例）
+            if (parseNumber(args, i, flag, ms, [](qint64 v) { return v >= 0 && v <= 86400000; },
+                    QStringLiteral("--interval 的值须为 0~86400000 的整数（毫秒）：%1"), errors)) {
                 o.intervalMs = ms;
             }
         } else {
