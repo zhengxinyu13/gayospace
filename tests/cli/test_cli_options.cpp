@@ -224,6 +224,21 @@ TEST_CASE("option value starting with double dash is rejected", "[cli][options]"
     REQUIRE_PARSE_ARG_ERROR();
 }
 
+TEST_CASE("negative option values are not mistaken as double dash", "[cli][options]")
+{
+    // R-153：takeValue 的 startsWith("--") 若误写成 startsWith("-")，
+    // -1 会被当 flag 拒——断言 -1 走的是数值校验路径
+    QStringList args{"send", "--port", "COM3", "--baud", "-1", "--data", "01"};
+    REQUIRE_PARSE_ARG_ERROR();
+
+    QStringList errs;
+    auto exit = Code::Ok;
+    cli::CliOptions::parse(args, errs, exit);
+    const auto joined = errs.join(QLatin1Char(';'));
+    REQUIRE(joined.contains(QStringLiteral("--baud 的值须为正整数")));
+    REQUIRE_FALSE(joined.contains(QStringLiteral("不能以 -- 开头")));
+}
+
 TEST_CASE("port and baud belong to serial params validation surface", "[cli][options]")
 {
     // R-104：--port/--baud 组装 SerialParams 后走 serial 层校验，失败 → 退出码 2
