@@ -191,6 +191,22 @@ TEST_CASE("send minimal and validation", "[cli][options]")
     REQUIRE_PARSE_ARG_ERROR(); // --interval <0
 }
 
+TEST_CASE("send interval upper bound is 86400000 (24h)", "[cli][options]")
+{
+    // R-157：--interval 无上界会经 qint64→int 窄化为负、QTimer 静默不启动；
+    // 防呆先例同 --duration 3600s（TS §6.1 第 3 条）
+    QStringList args{"send", "--port", "COM3", "--data", "01", "--interval", "86400001"};
+    REQUIRE_PARSE_ARG_ERROR(); // 越上界 → 退出码 2
+
+    args = QStringList{"send", "--port", "COM3", "--data", "01", "--interval", "86400000"};
+    REQUIRE_PARSE_OK(opts); // 上界本身放行
+
+    QStringList errs;
+    auto exit = Code::ArgError;
+    const auto o = cli::CliOptions::parse(args, errs, exit);
+    REQUIRE(o.intervalMs == 86400000);
+}
+
 TEST_CASE("send repeat upper bound is 100000", "[cli][options]")
 {
     // R-129：契约上界 100000（TS §6.1 第 3 条实现约束，批次③收紧解析器谓词）
